@@ -1,0 +1,22 @@
+# Mirror of .gitignore plus build-context-heavy locals
+.git/
+.github/
+.secrets/
+.freebuff/
+.kilocode/
+.mimosa/
+.ox-alpha/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.db
+*.log
+state/
+backups/
+compliance_reports/
+track_record/
+full_code_export/
+ox-alpha-ultimate/ox-alpha-ultimate/
+Dockerfile
+.dockerignore

@@ -382,6 +382,12 @@ class Cfg:
     def __getitem__(self, key: str):
         return self.d[key]
 
+    def __setitem__(self, key: str, value) -> None:
+        # The universe scanner replaces cfg["symbols"] at runtime after broker
+        # auth; without a setter that assignment raised TypeError and the scan
+        # silently fail-opened back to the static symbols.
+        self.d[key] = value
+
     def get(self, key: str, default=None):
         return self.d.get(key, default)
 

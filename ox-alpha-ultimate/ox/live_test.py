@@ -137,6 +137,7 @@ def run(prime_seconds: float = 0.0) -> int:
         _fail(f"{exc.__class__.__name__}: {str(exc)[:160]}")
 
     # 6. optional PRIME session on live quotes ---------------------------------
+    prime_status = None
     if prime_seconds > 0:
         print(f"[6] PRIME session {prime_seconds:.0f}s on live quotes (paper ledger)")
         try:
@@ -161,13 +162,29 @@ def run(prime_seconds: float = 0.0) -> int:
                             pass
                         await asyncio.sleep(3)
                     return orch.get_system_status()
-                status = asyncio.run(_feed())
+                prime_status = asyncio.run(_feed())
                 asyncio.run(orch.stop_all())
-                print(f"  agents={len(status['agents'])} ticks={status['data_pump_ticks']} "
-                      f"fills={status['execution']['fills']}")
+                print(f"  agents={len(prime_status['agents'])} ticks={prime_status['data_pump_ticks']} "
+                      f"fills={prime_status['execution']['fills']}")
         except Exception as exc:
             failures += 1
             _fail(f"{exc.__class__.__name__}: {str(exc)[:160]}")
+
+    # Journal the session into the supervised track record.  A journal failure
+    # must never fail the test itself, so this is best-effort.
+    try:
+        from ox.track_record import now_iso, write_record
+        prime = None
+        if prime_status is not None:
+            prime = {"agents": len(prime_status["agents"]),
+                     "ticks": prime_status["data_pump_ticks"],
+                     "fills": prime_status["execution"]["fills"],
+                     "seconds": prime_seconds}
+        write_record({"ts": now_iso(), "tool": "live-test", "read_only": True,
+                      "ok": failures == 0, "failures": failures,
+                      "symbol_count": len(syms), "prime": prime})
+    except Exception as exc:  # noqa: BLE001 - journaling is best-effort
+        print(f"  WARNING: could not journal session ({exc.__class__.__name__})")
 
     db.close()
     print(f"LIVE-TEST: {'PASS' if failures == 0 else f'{failures} failure(s)'} "

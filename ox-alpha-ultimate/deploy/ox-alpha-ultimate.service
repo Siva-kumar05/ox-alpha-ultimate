@@ -1,0 +1,42 @@
+# systemd unit for the ox-alpha-ultimate paper agent (or supervised live run).
+#
+# Install:
+#   1. cp deploy/ox-alpha-ultimate.service /etc/systemd/system/
+#   2. Create /etc/ox-alpha/ox.env containing only environment references,
+#      e.g.:
+#          OX_AUDIT_KEY=...
+#          DHAN_CLIENT_ID=...
+#          DHAN_TOKEN=...
+#      (rotate the Dhan token before every live session; never commit it)
+#   3. systemctl daemon-reload
+#   4. systemctl enable --now ox-alpha-ultimate
+#
+# The unit runs the agent from the checkout directory so config.yaml and the
+# relative db_path/log paths resolve the same way as manual runs.  Point
+# WorkingDirectory at the real checkout location.
+
+[Unit]
+Description=ox-alpha-ultimate autonomous trading agent (paper/supervised)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ox
+Group=ox
+WorkingDirectory=/srv/oxalpha
+EnvironmentFile=/etc/ox-alpha/ox.env
+ExecStart=/usr/bin/python3 run.py run
+Restart=on-failure
+RestartSec=10
+# Fail-closed discipline: if the process exits (e.g. a compliance halt or
+# KILL.flag refusal), systemd restarts it - but boot() refuses to trade while
+# KILL.flag exists, so the agent stays halted rather than re-entering.
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+# Resource guardrails for a 3s tick loop.
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

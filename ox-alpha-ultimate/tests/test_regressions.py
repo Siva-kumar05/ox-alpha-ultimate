@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from ox.advanced_risk import FactorRiskModel
 from ox.agent import Agent
@@ -255,6 +256,209 @@ class FormerlyCrashingPathTests(unittest.TestCase):
         funding = CryptoFundingArbAgent._get_funding_across_exchanges(stub, "BTCUSDT")
         self.assertEqual(list(funding.keys()), ["binance", "bybit", "okx"])
         self.assertEqual(funding["bybit"]["rate"], 0.00015)
+
+
+class UniverseScanOrderingTests(unittest.TestCase):
+    """The universe auto-scan must run only after broker auth inside boot().
+
+    Previously it ran in Agent.__init__ before any login, so in live mode
+    every scan failed unauthenticated and silently kept the static symbols.
+    The class-level spy below is installed before construction, so the
+    pre-fix code (scan in __init__) appends 'scan' immediately and both
+    tests fail.
+    """
+
+    _AUDIT_KEY = "scan-audit-key-is-at-least-thirty-two-characters"
+
+    def setUp(self) -> None:
+        self._saved = os.environ.get("OX_AUDIT_KEY")
+        os.environ["OX_AUDIT_KEY"] = self._AUDIT_KEY
+        self._directory = tempfile.mkdtemp(prefix="ox-uniscan-")
+
+    def tearDown(self) -> None:
+        if self._saved is None:
+            os.environ.pop("OX_AUDIT_KEY", None)
+        else:
+            os.environ["OX_AUDIT_KEY"] = self._saved
+        shutil.rmtree(self._directory, ignore_errors=True)
+
+    def _make_cfg(self) -> Path:
+        import run  # local import keeps module top level free of run.py effects
+
+        path = run._smoke_config(Path(self._directory))
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw["symbols"] = ["TCS"]
+        raw["training"]["min_symbols"] = 1  # pre-scan universe is a single symbol
+        raw["universe"]["auto_scan"] = True
+        path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+        return path
+
+    def test_scan_runs_only_after_broker_auth_and_applies_result(self):
+        events: list[str] = []
+        original_scan = Agent._apply_universe_scan
+
+        def spy_scan(agent):
+            events.append("scan")
+            return original_scan(agent)
+
+        Agent._apply_universe_scan = spy_scan
+        agent = None
+        try:
+            agent = Agent(str(self._make_cfg()))
+            # Post-fix the scan lives in boot() after daily_auth; construction
+            # must not attempt one (pre-fix it ran unauthenticated here).
+            self.assertEqual(events, [], "universe scan must not run at construction")
+
+            # Seed smallcap candles (20-500 range, volume >= 500) for every
+            # candidate so the post-auth scan deterministically ranks >= 2 of
+            # them instead of fail-opening back to the static symbol.
+            rng = np.random.default_rng(11)
+            base_time = int(time.time()) - 90 * 60
+            for candidate in agent.cfg["universe"]["candidates"]:
+                price = 250.0
+                for index in range(90):
+                    price = max(price + 0.4 + rng.normal(0, 2.0), 30.0)
+                    agent.db.ex(
+                        "INSERT OR REPLACE INTO candles VALUES(?,?,?,?,?,?,?)",
+                        (candidate, base_time + index * 60, price - 1, price + 2,
+                         price - 2, price, 5000),
+                    )
+
+            real_auth = agent.comp.daily_auth
+
+            def spy_auth(broker):
+                events.append("auth")
+                return real_auth(broker)
+
+            agent.comp.daily_auth = spy_auth
+            self.assertTrue(agent.boot())
+            self.assertEqual(events, ["auth", "scan"],
+                             "scan must run exactly once, strictly after broker auth")
+
+            # The scan result is applied: symbols replaced by the affordable
+            # candidate list (>= 2 names), journaled as a UNIVERSE_SCAN event.
+            self.assertGreaterEqual(len(agent.cfg["symbols"]), 2)
+            count = agent.db.q("SELECT COUNT(*) FROM events WHERE kind='UNIVERSE_SCAN'")
+            self.assertEqual(int(count[0][0]), 1, "UNIVERSE_SCAN event must be journaled")
+        finally:
+            Agent._apply_universe_scan = original_scan
+            if agent is not None:
+                try:
+                    agent.close()
+                except Exception:
+                    pass
+
+    def test_scan_not_attempted_when_broker_auth_fails(self):
+        events: list[str] = []
+        original_scan = Agent._apply_universe_scan
+
+        def spy_scan(agent):
+            events.append("scan")
+            return original_scan(agent)
+
+        Agent._apply_universe_scan = spy_scan
+        agent = None
+        try:
+            agent = Agent(str(self._make_cfg()))
+            self.assertEqual(events, [], "no scan during construction")
+            agent.comp.daily_auth = lambda broker: False  # broker auth refused
+            self.assertFalse(agent.boot())
+            self.assertEqual(events, [], "scan must not run when broker auth failed")
+            self.assertEqual(agent.cfg["symbols"], ["TCS"],
+                             "static symbols must be preserved when auth fails")
+        finally:
+            Agent._apply_universe_scan = original_scan
+            if agent is not None:
+                try:
+                    agent.close()
+                except Exception:
+                    pass
+
+
+class SizingMultiplierRegressionTests(unittest.TestCase):
+    """A zero or sub-unit circuit-breaker size multiplier must block the entry.
+
+    Previously `max(1, int(qty * multiplier))` made the quantity<=0 guard dead
+    code, so a 0.0 multiplier (L2/HALT state) silently produced a 1-share
+    entry.  The guard must record CIRCUIT_BREAKER_SIZE and open nothing.
+    """
+
+    def test_zero_and_subunit_multipliers_block_entry(self):
+        import run  # local import keeps module top level free of run.py effects
+
+        prior_key = os.environ.get("OX_AUDIT_KEY")
+        os.environ["OX_AUDIT_KEY"] = "size-audit-key-is-at-least-thirty-two-chars"
+        directory = tempfile.mkdtemp(prefix="ox-sizemult-")
+        agent = None
+        try:
+            agent = Agent(str(run._smoke_config(Path(directory))))
+            # The contract under test is the breaker-multiplier guard in
+            # sizing; the paper depth gate is orthogonal (see the leverage
+            # regression above for why it would intermittently block).
+            agent.cfg["order_flow"]["primary"] = False
+            agent.cfg["order_flow"]["enabled"] = False
+            agent.broker.set_px("TCS", 1100.0)
+            rng = np.random.default_rng(7)
+            base_time = int(time.time()) - 400 * 60
+            for symbol in agent.cfg["symbols"]:
+                price = 1000.0
+                for index in range(400):
+                    price += 0.3 + rng.normal(0, 1.5)
+                    agent.db.ex(
+                        "INSERT OR REPLACE INTO candles VALUES(?,?,?,?,?,?,?)",
+                        (symbol, base_time + index * 60, price - 1, price + 2,
+                         price - 2, price, 5000),
+                    )
+            agent.nightly_training()
+            agent.load_strategies()
+            self.assertTrue(agent.strategies, "no validated strategy was promoted")
+            supporter = [(agent.strategies[0][0], agent.strategies[0][2], 1.0)]
+            frame = agent.frame("TCS", 400)
+
+            def call_act() -> None:
+                agent._act("TCS", 1100.0, frame, votes=1, supporters=supporter)
+
+            # 1. L2/HALT multiplier 0.0 -> block; pre-fix this opened 1 share.
+            agent._position_size_multiplier = 0.0
+            call_act()
+            self.assertNotIn("TCS", agent.oms.positions,
+                             "a 0.0 multiplier (L2/HALT) must never open a position")
+
+            # 2. Sub-unit scaled size: base qty 1 at this cap * 0.5 floors to
+            #    zero -> block, not a 1-share entry.
+            agent.risk.rules["max_notional_per_trade"] = 1100.0
+            agent._position_size_multiplier = 0.5
+            call_act()
+            self.assertNotIn("TCS", agent.oms.positions,
+                             "a sub-unit scaled size must block")
+
+            # 3. Same 1-share cap with the full multiplier still opens - the
+            #    guard is not over-broad.
+            agent._position_size_multiplier = 1.0
+            call_act()
+            position = agent.oms.positions.get("TCS")
+            self.assertIsNotNone(position, "full multiplier must still open at cap qty 1")
+            self.assertEqual(int(position["qty"]), 1)
+
+            # _record_decision throttles duplicate (sym, action, reason) rows,
+            # so both blocks may share one journal row; the behavioural
+            # contract above (nothing opened in cases 1-2, qty 1 in case 3) is
+            # the assertion.  At least one row proves the guard fired.
+            blocked = agent.db.q(
+                "SELECT reason FROM decisions WHERE action='BLOCK' AND sym='TCS' AND reason='CIRCUIT_BREAKER_SIZE'")
+            self.assertGreaterEqual(len(blocked), 1,
+                                    "the CIRCUIT_BREAKER_SIZE guard must be journaled")
+        finally:
+            if agent is not None:
+                try:
+                    agent.close()
+                except Exception:
+                    pass
+            if prior_key is None:
+                os.environ.pop("OX_AUDIT_KEY", None)
+            else:
+                os.environ["OX_AUDIT_KEY"] = prior_key
+            shutil.rmtree(directory, ignore_errors=True)
 
 
 if __name__ == "__main__":

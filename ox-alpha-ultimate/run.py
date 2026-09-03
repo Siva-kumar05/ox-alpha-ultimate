@@ -464,6 +464,10 @@ def main() -> None:
         run_smoketest()
         return
 
+    if command == "track-record":
+        from ox.track_record import main as _track_main
+        raise SystemExit(_track_main(sys.argv[2:]))
+
     # ── multi-agent (PRIME) commands ─────────────────────────────────
     if command in {"promax", "intents", "ok", "deny", "promax-status", "promax-kill",
                    "promax-smoke", "report", "validate-online", "odds-month", "live-test"}:
@@ -508,7 +512,8 @@ def main() -> None:
         agent.run_forever()
     else:
         raise SystemExit(
-            "Usage: python run.py [run|train|status|approve|kill|smoketest]\n"
+            "Usage: python run.py [run|train|status|approve|kill|smoketest|track-record]\n"
+            "       python run.py [live-test <seconds>|validate-online]\n"
             "       python run.py [promax [seconds]|promax-smoke|promax-status|"
             "promax-kill|intents [STATUS]|ok <iid>|deny <iid>]"
         )

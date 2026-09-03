@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    name: Ruff (real-bug classes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.16.4
+      - name: Ruff F821/F601/F811 over ox/ and tests/
+        run: ruff check ox/ tests/ --select F821,F601,F811
+
+  test:
+    name: Full offline test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        # The suite is fully offline: paper broker, scripted HTTP transport,
+        # temp databases.  ~90s wall time.
+        run: python -m pytest tests/ -q
+
+  smoketest:
+    name: Paper smoketest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run paper smoketest
+        run: python run.py smoketest
