@@ -1,0 +1,59 @@
+capital: 100000
+costs:
+  brokerage_per_order: 20
+  gst_pct: 18.0
+  sebi_fee_pct: 0.0001
+  slippage_pct: 0.05
+  stamp_duty_pct: 0.003
+  stt_pct: 0.025
+  txn_charge_pct: 0.00297
+db_path: test_intraday_20stocks.db
+entry_cutoff: '14:45'
+exchange: NSE
+execution:
+  allow_short: false
+  autonomous: true
+  signal_history_candles: 300
+history_days: 30
+market_close: '15:30'
+market_open: 09:15
+mode: paper
+platform: paper
+risk:
+  cooldown_after_losses: 3
+  daily_loss_cap_abs: 2000
+  daily_loss_cap_pct: 2.0
+  max_notional_per_trade: 50000
+  max_positions: 5
+  portfolio_var_limit_pct: 3.0
+  risk_per_trade_pct: 0.5
+squareoff: '15:15'
+symbols:
+- RELIANCE
+- HDFCBANK
+- ICICIBANK
+- INFY
+- TCS
+- HINDUNILVR
+- ITC
+- SBIN
+- BHARTIARTL
+- KOTAKBANK
+- LT
+- BAJFINANCE
+- ASIANPAINT
+- MARUTI
+- SUNPHARMA
+- TITAN
+- ULTRACEMCO
+- WIPRO
+- ONGC
+- NTPC
+tick_seconds: 60
+timeframe_sec: 60
+training:
+  elite_k: 2
+  iterations: 2
+  min_trades: 10
+  population: 6
+  promote_score: 0.6

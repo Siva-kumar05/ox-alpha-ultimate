@@ -1,0 +1,40 @@
+# --- secrets & credentials ---
+.secrets/
+*.env
+.env
+KILL.flag
+
+# --- runtime state / data ---
+state/
+backups/
+compliance_reports/
+*.db
+*.db-wal
+*.db-shm
+*.log
+oxalpha.log
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# --- tool / agent scratch (not part of the project) ---
+.freebuff/
+.kilocode/
+.mimosa/
+.ox-alpha/
+full_code_export/
+_build.py
+_build_modules.py
+
+# --- stale duplicate snapshot of this project ---
+ox-alpha-ultimate/
+
+# --- os ---
+Thumbs.db
+.DS_Store
