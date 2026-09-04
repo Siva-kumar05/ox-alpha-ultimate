@@ -119,7 +119,11 @@ by agent/risk-coordinator/router separation).
 
 Everything defaults to paper (PaperBroker random walk + crypto micro
 broker). Live NSE execution goes through the same `DhanBroker` fail-closed
-adapter as the legacy runtime (env-gated in `ox/core.py`). Live crypto
-requires wiring a ccxt venue adapter into `CryptoMicroBroker` — the class
-documents this restriction in its header. Do not point this at real money
-before a month of paper logs you have actually read.
+adapter as the legacy runtime (env-gated in `ox/core.py`). Live crypto is
+wired: with `mode: live`, `CryptoMicroBroker` trades real Binance through
+ccxt — swap symbols (BTCUSDT/ETHUSDT/SOLUSDT) on USDT-M perpetuals with
+ladder-gated leverage and real funding rates, spot symbols
+(PEPEUSDT/WIFUSDT/BONKUSDT) cash-only with leveraged orders refused. Live
+mode requires `BINANCE_API_KEY`/`BINANCE_API_SECRET` and the same
+operator gate as NSE (`OX_LIVE_EXECUTION_APPROVED`). Do not point this at
+real money before a month of paper logs you have actually read.

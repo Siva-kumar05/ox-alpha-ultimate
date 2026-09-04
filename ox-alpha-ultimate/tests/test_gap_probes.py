@@ -22,6 +22,7 @@ import pandas as pd
 import yaml
 
 from ox.agent import Agent
+from ox.brokers import AuthenticationError, ChoiceBroker, make_broker
 from ox.core import Cfg, ConfigError
 from ox.oms import OMS, OrderError
 from ox.risk import Metrics, RiskManager
@@ -237,6 +238,80 @@ class DocumentedGapTests(unittest.TestCase):
             "EventCalendar",
         ):
             self.assertIn(module_reference, wired, f"{module_reference} is never constructed")
+
+    def _rewrite_config(self, mutate):
+        source = Path(__file__).resolve().parents[1] / "config.yaml"
+        raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+        mutate(raw)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "config.yaml"
+        path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        return path
+
+    def test_security_map_must_cover_every_configured_symbol(self):
+        # A symbol without a securityId fails closed at boot, naming the symbol.
+        path = self._rewrite_config(lambda raw: raw["symbols"].append("UNLISTED"))
+        with self.assertRaisesRegex(ConfigError, "UNLISTED"):
+            Cfg(path)
+
+    def test_security_map_must_not_contain_unknown_symbols(self):
+        # Vice versa: a stale map entry whose symbol is no longer configured
+        # would fail at first Dhan lookup; reject it at boot instead.
+        path = self._rewrite_config(lambda raw: raw["security_map"].update({"EXTRA": "9999"}))
+        with self.assertRaisesRegex(ConfigError, "EXTRA"):
+            Cfg(path)
+
+    def test_security_map_missing_entirely_fails_live_but_not_paper(self):
+        # Live requires a complete map; paper mode may trade without one.
+        path = self._rewrite_config(lambda raw: raw.pop("security_map"))
+        Cfg(path)  # paper mode: fine
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw["mode"] = "live"
+        raw["platform"] = "dhan"
+        raw["ip_whitelist"] = ["203.0.113.2"]
+        path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        with patch.dict("os.environ", {"OX_LIVE_EXECUTION_APPROVED": "YES_I_UNDERSTAND_LIVE_TRADING"}, clear=True), \
+                self.assertRaisesRegex(ConfigError, "security_map"):
+            Cfg(path)
+
+
+class ChoiceVenueProbeTests(unittest.TestCase):
+    """Choice India must fail closed, never silently fall through to paper.
+
+    The adapter is a documented scaffold (like groww/tradingview): credentials
+    are read from the environment so the setup flow can prompt for them, but
+    login and every order/data endpoint raise a clear error until a real
+    adapter is wired and verified.
+    """
+
+    def test_make_broker_returns_the_choice_adapter(self):
+        broker = make_broker({"platform": "choice"}, None)
+        self.assertIsInstance(broker, ChoiceBroker)
+
+    def test_login_fails_closed_and_names_the_venue(self):
+        broker = ChoiceBroker({}, None)
+        with self.assertRaisesRegex(AuthenticationError, "Choice India adapter is not wired yet"):
+            broker.login()
+        self.assertFalse(broker.authenticated())
+
+    def test_login_with_missing_creds_names_them(self):
+        broker = ChoiceBroker({}, None)
+        with self.assertRaisesRegex(AuthenticationError, "CHOICE_USER_ID.*CHOICE_API_KEY"):
+            broker.login()
+
+    def test_data_and_order_endpoints_fail_closed(self):
+        from ox.brokers import MarketDataError, OrderError
+
+        broker = ChoiceBroker({}, None)
+        with self.assertRaisesRegex(MarketDataError, "not wired"):
+            broker.ltp("TCS")
+        with self.assertRaisesRegex(MarketDataError, "not wired"):
+            broker.hist("TCS", 1, 5)
+        with self.assertRaisesRegex(OrderError, "not wired"):
+            broker.place_super_order("TCS", "BUY", 1, 1.0, 1.0, "x")
+        with self.assertRaisesRegex(OrderError, "not wired"):
+            broker.positions()
 
 
 if __name__ == "__main__":

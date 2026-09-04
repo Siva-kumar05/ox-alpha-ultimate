@@ -535,7 +535,9 @@ class Agent:
                 continue
 
             # Multi-timeframe alignment
-            mtf_result = self.mtf_analyzer.alignment_score(frame)
+            mtf_result = {"score": 0.5, "details": {}, "aligned": True}
+            if self.mtf_analyzer.enabled:
+                mtf_result = self.mtf_analyzer.alignment_score(frame)
             self.db.kv_set(f"mtf_{sym}", mtf_result)
 
             votes, supporters = self._vote_details(frame)
@@ -623,6 +625,7 @@ class Agent:
             LOG.info("Negative news filter blocked %s (%.3f, %s)", sym, optimism, sentiment)
             self._record_decision(sym, "BLOCK", "NEGATIVE_NEWS", {"optimism": round(float(optimism), 3)})
             return
+        bracket_detail = {"strategy_ids": [], "sl_atr": 1.5, "tp_atr": 2.0, "atr": 0.01, "stop_distance": 0.01, "target_distance": 0.01}
         try:
             stop, target, bracket_detail = self._bracket_from_supporters(frame, ltp, supporters or [])
         except (KeyError, TypeError, ValueError) as exc:
@@ -863,27 +866,68 @@ class Agent:
     def _apply_universe_scan(self) -> None:
         """Dynamic universe at boot: low-cost liquid candidates -> cfg symbols.
 
-        Fail-open by design: any error keeps the static config.yaml symbols.
+        A designed gate, not an accident: candidates are restricted to symbols
+        the venue layer can actually resolve BEFORE any scanner call.  Live
+        Dhan previously handed unresolvable candidates to the scanner, which
+        self-defeated on the first missing securityId inside a broad except
+        and silently kept the static symbols.
+
+        Boot guarantees:
+          * Paper (broker without a security_map): the scan may select any
+            eligible low-cost candidate; the paper broker resolves synthetic
+            history for any symbol.
+          * Dhan live or paper (broker exposes a security_map): the scanner
+            only ever sees candidates that are members of security_map, so
+            every selected symbol - and therefore the whole post-scan
+            universe - is orderable on the venue.
+          * Candidates the venue cannot resolve are excluded and logged; if
+            none remain, or the scan yields fewer than two affordable names,
+            or the scanner/broker raises, the static symbols are kept and a
+            UNIVERSE_SCAN_SKIP event records why.  No path is silent.
         Requires a broker login first (paper has synthetic history), so this
         runs post-make_broker with cached/fetched history only.
         """
         settings = self.cfg.get("universe", {}) if isinstance(self.cfg.get("universe"), dict) else {}
         if not settings.get("auto_scan", False):
             return
+        broker_map = getattr(self.broker, "security_map", None)
+        resolvable = {str(k).upper() for k in broker_map} if broker_map else None
         try:
             from .scanner import MarketScanner
             candidates = [str(s).upper() for s in settings.get("candidates", self.cfg.get("symbols", []))]
+            dropped = sorted({c for c in candidates if resolvable is not None and c not in resolvable})
+            eligible = [c for c in candidates if c not in dropped]
+            if not eligible:
+                self.db.ex("INSERT INTO events(kind,msg,ts)VALUES('UNIVERSE_SCAN_SKIP',?,?)",
+                           (f"no universe candidate is resolvable on {self.broker.name}: "
+                            f"{', '.join(dropped or candidates)}; keeping static symbols", iso()))
+                LOG.warning("Universe scan skipped: no candidate is resolvable on %s (%s); keeping %s",
+                            self.broker.name, ", ".join(dropped or candidates), ",".join(self.cfg["symbols"]))
+                return
+            if dropped:
+                LOG.info("Universe scan: %d candidate(s) not resolvable on %s, excluded: %s",
+                         len(dropped), self.broker.name, ", ".join(dropped))
             ceiling = float(settings.get("price_ceiling", 500))
             top_k = int(settings.get("top_k", 12))
-            ranked = MarketScanner(self.cfg, self.db, self.broker).scan(candidates, top_k=top_k * 2)
+            ranked = MarketScanner(self.cfg, self.db, self.broker).scan(eligible, top_k=top_k * 2)
             affordable = [r["symbol"] for r in ranked
                           if r["last_price"] and float(r["last_price"]) <= ceiling][:top_k]
+            # Final guard: never admit a symbol the venue cannot resolve, even
+            # if the scanner misbehaves and returns one.
+            if resolvable is not None:
+                affordable = [sym for sym in affordable if sym in resolvable]
             if len(affordable) >= 2:
                 self.cfg["symbols"] = affordable
                 self.db.ex("INSERT INTO events(kind,msg,ts)VALUES('UNIVERSE_SCAN',?,?)",
                            (",".join(affordable), iso()))
                 LOG.info("Universe scan selected: %s", ",".join(affordable))
-        except Exception:
+            else:
+                self.db.ex("INSERT INTO events(kind,msg,ts)VALUES('UNIVERSE_SCAN_SKIP',?,?)",
+                           ("scan produced fewer than two affordable symbols; keeping static symbols", iso()))
+                LOG.warning("Universe scan produced no selection; keeping static symbols")
+        except Exception as exc:
+            self.db.ex("INSERT INTO events(kind,msg,ts)VALUES('UNIVERSE_SCAN_SKIP',?,?)",
+                       (f"universe scan failed ({exc.__class__.__name__}); keeping static symbols", iso()))
             LOG.warning("Universe scan failed; keeping static symbols", exc_info=True)
 
     def run_forever(self) -> None:

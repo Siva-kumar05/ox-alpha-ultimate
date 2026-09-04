@@ -288,6 +288,8 @@ class UniverseScanOrderingTests(unittest.TestCase):
         path = run._smoke_config(Path(self._directory))
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         raw["symbols"] = ["TCS"]
+        # security_map must mirror symbols in both directions (Cfg validation).
+        raw["security_map"] = {k: v for k, v in raw.get("security_map", {}).items() if k in raw["symbols"]}
         raw["training"]["min_symbols"] = 1  # pre-scan universe is a single symbol
         raw["universe"]["auto_scan"] = True
         path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")

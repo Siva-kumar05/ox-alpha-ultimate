@@ -37,6 +37,11 @@ def _smoke_config(root: Path) -> Path:
     config = yaml.safe_load((PROJECT_ROOT / "config.yaml").read_text(encoding="utf-8"))
     config["db_path"] = "smoke.db"
     config["symbols"] = ["TCS", "RELIANCE", "INFY"]
+    # security_map must mirror symbols in both directions (Cfg validation).
+    config["security_map"] = {
+        symbol: value for symbol, value in (config.get("security_map") or {}).items()
+        if symbol in config["symbols"]
+    }
     config["training"] = {
         "iterations": 1, "population": 6, "elite_k": 2, "min_trades": 1,
         "promote_score": -9.0, "min_signal_stability": 0.01,

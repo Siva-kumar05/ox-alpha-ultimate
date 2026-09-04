@@ -870,6 +870,61 @@ class GrowwBroker(BrokerBase):
     def ltp(self,sym): raise MarketDataError("Wire Groww LTP endpoint")
     def hist(self,sym,tf_min=1,days=5): raise MarketDataError("Wire Groww hist endpoint")
 
+class ChoiceBroker(BrokerBase):
+    """Choice India (Finvasia) is a fail-closed scaffold, not a wired adapter.
+
+    Credentials are read from the environment (Shoonya-style names) so the
+    live setup script can prompt for them, but login and every trading/data
+    endpoint raise a clear error: this platform must never silently fall
+    through to paper or to a half-written adapter.
+    """
+
+    name = "choice"
+    _NOT_WIRED = "Choice India adapter is not wired yet (research-only scaffold)"
+
+    def __init__(self, cfg, db):
+        super().__init__(cfg, db)
+        platforms = cfg.get("platforms", {}) if isinstance(cfg, dict) else {}
+        self.user_id = os.getenv(platforms.get("choice_user_id_env", "CHOICE_USER_ID"), "").strip()
+        self.password = os.getenv(platforms.get("choice_password_env", "CHOICE_PASSWORD"), "").strip()
+        self.totp_secret = os.getenv(platforms.get("choice_totp_env", "CHOICE_TOTP_SECRET"), "").strip()
+        self.api_key = os.getenv(platforms.get("choice_api_key_env", "CHOICE_API_KEY"), "").strip()
+
+    def login(self):
+        missing = [name for name, value in
+                   (("CHOICE_USER_ID", self.user_id), ("CHOICE_API_KEY", self.api_key))
+                   if not value]
+        hint = f" (missing: {', '.join(missing)})" if missing else ""
+        raise AuthenticationError(f"{self._NOT_WIRED}{hint}; refusing to trade through an unwired venue")
+
+    def ltp(self, sym):
+        raise MarketDataError(self._NOT_WIRED)
+
+    def hist(self, sym, tf_min=1, days=5):
+        raise MarketDataError(self._NOT_WIRED)
+
+    def place_super_order(self, sym, side, qty, target, stop, tag):
+        raise OrderError(self._NOT_WIRED)
+
+    def wait_super_order(self, order_id, timeout_seconds):
+        raise OrderError(self._NOT_WIRED)
+
+    def cancel_super_order(self, order_id):
+        raise OrderError(self._NOT_WIRED)
+
+    def modify_super_target(self, order_id, target):
+        raise OrderError(self._NOT_WIRED)
+
+    def exit_position(self, sym, side, qty, tag):
+        raise OrderError(self._NOT_WIRED)
+
+    def wait_order(self, order_id, timeout_seconds):
+        raise OrderError(self._NOT_WIRED)
+
+    def positions(self):
+        raise OrderError(self._NOT_WIRED)
+
+
 class TradingViewBroker(BrokerBase):
     name = "tradingview"
     def __init__(self, cfg, db):
@@ -903,8 +958,9 @@ class BinanceBroker(BrokerBase):
 
 def make_broker(cfg, db) -> BrokerBase:
     plat=str(cfg.get("platform","paper")).lower()
-    if plat=="groww": return GrowwBroker(cfg,db)
-    if plat=="tradingview": return TradingViewBroker(cfg,db)
+    if plat == "groww": return GrowwBroker(cfg,db)
+    if plat == "choice": return ChoiceBroker(cfg,db)
+    if plat == "tradingview": return TradingViewBroker(cfg,db)
     if plat=="binance": return BinanceBroker(cfg,db)
     if plat in {"crypto_paper","crypto"}:
         from .crypto import CryptoMicroBroker

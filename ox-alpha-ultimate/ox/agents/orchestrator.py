@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -115,6 +116,7 @@ class DataPump:
         self.crypto_symbols = list(dict.fromkeys(crypto_symbols))
         self.interval_seconds = float(interval_seconds)
         self.ticks = 0
+        self.live = bool(getattr(crypto_broker, "live", False))
         # Synthetic per-symbol fundamentals (paper only).
         self._fundamentals: Dict[str, Dict[str, float]] = {
             sym: {
@@ -150,20 +152,50 @@ class DataPump:
             f["price_change_7d"] = f["price_change_24h"] * 1.6
         return f
 
+    def _live_fundamentals(self, sym: str, price: float) -> Dict[str, float]:
+        """Live perp fundamentals from the venue; spot symbols report zeros."""
+        funding = self.crypto_broker.funding_rate(sym) if self.live else None
+        oi = self.crypto_broker.open_interest(sym) if self.live else None
+        ref = self._ref_prices.setdefault(sym, price)
+        return {
+            "funding_rate": float(funding or 0.0),
+            "open_interest": float(oi or 0.0),
+            "long_short_ratio": 1.0,
+            "volume_24h": 0.0,
+            "volume_change_24h": 0.0,
+            "price_change_24h": price / ref - 1.0 if ref > 0 else 0.0,
+            "price_change_7d": 0.0,
+            "market_cap": 0.0,
+            "liquidity": 0.0,
+            "holders": 0.0,
+            "basis_pct": float(funding or 0.0) * 2.0,
+        }
+
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
             try:
                 if self.symbols and self.equity_broker is not None:
-                    quotes = self.equity_broker.ltps(self.symbols)
-                    for sym, price in quotes.items():
-                        self.data_bus.publish(f"market:{sym}", {
-                            "symbol": sym, "price": float(price),
-                            "ts": datetime.now().isoformat(), "source": "equity_broker",
-                        })
+                    try:
+                        quotes = self.equity_broker.ltps(self.symbols)
+                        for sym, price in quotes.items():
+                            self.data_bus.publish(f"market:{sym}", {
+                                "symbol": sym, "price": float(price),
+                                "ts": datetime.now().isoformat(), "source": "equity_broker",
+                            })
+                    except Exception as exc:
+                        # One venue must never starve the other: an equity-side
+                        # failure (e.g. an unresolvable securityId in live Dhan)
+                        # degrades with a warning while crypto keeps pumping.
+                        LOG.warning(
+                            "Equity pump tick failed: %s: %s", exc.__class__.__name__, exc
+                        )
                 if self.crypto_symbols and self.crypto_broker is not None:
                     for sym in self.crypto_symbols:
                         price = float(self.crypto_broker.ltp(sym))
-                        f = self._tick_fundamentals(sym, price)
+                        if self.live:
+                            f = self._live_fundamentals(sym, price)
+                        else:
+                            f = self._tick_fundamentals(sym, price)
                         self.data_bus.publish(f"market:{sym}", {
                             "symbol": sym, "price": price, "mark_price": price,
                             "index_price": price * (1.0 - f["basis_pct"]),
@@ -171,20 +203,22 @@ class DataPump:
                             **f,
                         })
                         if self.ticks % self.FUNDING_PUBLISH_EVERY == 0:
+                            venue = "binance" if self.live else "paper_perp"
                             self.data_bus.publish("exchange:funding", {
-                                "exchange": "paper_perp", "symbol": sym,
+                                "exchange": venue, "symbol": sym,
                                 "rate": f["funding_rate"], "ts": datetime.now().isoformat(),
                             })
-                            self.data_bus.publish("exchange:funding", {
-                                "exchange": "paper_spot_margin", "symbol": sym,
-                                "rate": f["funding_rate"] * 0.6,
-                                "ts": datetime.now().isoformat(),
-                            })
                             self.data_bus.publish("exchange:basis", {
-                                "exchange": "paper_perp", "symbol": sym,
+                                "exchange": venue, "symbol": sym,
                                 "basis_pct": f["basis_pct"],
                                 "ts": datetime.now().isoformat(),
                             })
+                            if not self.live:
+                                self.data_bus.publish("exchange:funding", {
+                                    "exchange": "paper_spot_margin", "symbol": sym,
+                                    "rate": f["funding_rate"] * 0.6,
+                                    "ts": datetime.now().isoformat(),
+                                })
                 self.ticks += 1
             except Exception as exc:
                 LOG.warning(f"Data pump tick failed: {exc.__class__.__name__}: {exc}")
@@ -297,12 +331,24 @@ class ExecutionRouter:
         tag = f"PROMAX_{signal.agent_id[:12]}_{signal.signal_id}"[:40]
 
         if is_crypto:
-            receipt = self.crypto_broker.place_market(signal.symbol, "BUY", qty)
+            try:
+                receipt = self.crypto_broker.place_market(signal.symbol, "BUY", qty, leverage=leverage)
+            except Exception:
+                # The venue failed after margin was reserved: release it so a
+                # failed open can never leak a capital reservation.
+                self.allocator.release(signal.agent_id, margin)
+                raise
             fill_price = float(receipt["price"])
             order_id = receipt["order_id"]
         else:
-            receipt = self.equity_broker.place_super_order(signal.symbol, "BUY", qty, target, stop, tag)
-            confirmation = self.equity_broker.wait_super_order(receipt.order_id, timeout_seconds=10)
+            try:
+                receipt = self.equity_broker.place_super_order(signal.symbol, "BUY", qty, target, stop, tag)
+                confirmation = self.equity_broker.wait_super_order(receipt.order_id, timeout_seconds=10)
+            except Exception:
+                # The venue failed after margin was reserved: release it so a
+                # failed open can never leak a capital reservation.
+                self.allocator.release(signal.agent_id, margin)
+                raise
             if confirmation.filled_qty <= 0:
                 self.allocator.release(signal.agent_id, margin)
                 self.rejected.append(f"{signal.agent_id}:{signal.symbol}:unfilled")
@@ -339,13 +385,29 @@ class ExecutionRouter:
         broker = self._broker_for(signal.agent_id)
 
         if broker is self.crypto_broker:
-            receipt = self.crypto_broker.place_market(signal.symbol, "SELL", position.quantity)
+            # reduceOnly on live perps: an exit can never flip into a new position.
+            try:
+                receipt = self.crypto_broker.place_market(
+                    signal.symbol, "SELL", position.quantity,
+                    reduce_only=True, leverage=position.leverage,
+                )
+            except Exception:
+                # The venue still holds the position: restore it so local state
+                # matches broker truth and the margin stays reserved.
+                agent.positions[signal.symbol] = position
+                raise
             exit_price = float(receipt["price"])
         else:
-            receipt = self.equity_broker.exit_position(
-                signal.symbol, "SELL", int(position.quantity),
-                f"PROMAX_EXIT_{str(signal.metadata.get('reason', ''))[:16]}"[:40],
-            )
+            try:
+                receipt = self.equity_broker.exit_position(
+                    signal.symbol, "SELL", int(position.quantity),
+                    f"PROMAX_EXIT_{str(signal.metadata.get('reason', ''))[:16]}"[:40],
+                )
+            except Exception:
+                # The venue still holds the position: restore it so local state
+                # matches broker truth and the margin stays reserved.
+                agent.positions[signal.symbol] = position
+                raise
             exit_price = float(receipt.average_price) or float(signal.price) or position.current_price
 
         margin = position.quantity * position.entry_price / max(1.0, position.leverage)
@@ -397,6 +459,13 @@ class AgentOrchestrator:
         with self.config_path.open("r", encoding="utf-8") as handle:
             self.config: Dict[str, Any] = yaml.safe_load(handle) or {}
 
+        self.mode = str(self.config.get("mode", "paper")).lower()
+        if self.mode == "live" and os.getenv("OX_LIVE_EXECUTION_APPROVED", "") != "YES_I_UNDERSTAND_LIVE_TRADING":
+            raise RuntimeError(
+                "live mode requires explicit operator affirmation in the host environment: "
+                "OX_LIVE_EXECUTION_APPROVED=YES_I_UNDERSTAND_LIVE_TRADING"
+            )
+
         self.db = DB(db_path or self.config.get("db_path", "promax.db"))
         self.resource_pool = ResourcePool()
         self.data_bus = SharedDataBus()
@@ -419,6 +488,24 @@ class AgentOrchestrator:
             state_dir=PROJECT_ROOT / "state" / "promax",
         )
         self.resource_pool.acquire("debate_panel", lambda: self.debate_panel)
+
+        # Live crypto venue map: perp-type agents (crypto_perp, crypto_funding)
+        # trade USDT-M swaps (leverage + real funding); meme/swing agents trade
+        # cash spot.  Explicit ``crypto.markets`` entries in the YAML override
+        # the inference.
+        crypto_markets: Dict[str, str] = {}
+        for raw in (self.config.get("agents", {}) or {}).values():
+            if not raw.get("enabled", True):
+                continue
+            atype = str(raw.get("type", ""))
+            if atype in ("crypto_perp", "crypto_funding"):
+                for sym in (raw.get("symbols", []) or []):
+                    crypto_markets.setdefault(str(sym).upper(), "swap")
+            elif atype == "crypto_meme_swing":
+                for sym in (raw.get("symbols", []) or []):
+                    crypto_markets.setdefault(str(sym).upper(), "spot")
+        for sym, mkt in dict(self.config.get("crypto", {}).get("markets", {}) or {}).items():
+            crypto_markets[str(sym).upper()] = str(mkt).lower()
 
         # Broker shim configs (paper default; live requires the legacy
         # runtime's env gate — see ox.core.Cfg._validate).
@@ -444,9 +531,18 @@ class AgentOrchestrator:
             },
             "paper_seed": int(self.config.get("paper_seed", 7)),
             "paper_prices": dict(self.config.get("paper_prices", {})),
+            # Live NSE routing inside promax needs the same symbol->securityId
+            # map as the legacy runtime; without it DhanBroker cannot resolve
+            # a single quote (OrderError on every lookup).
+            "security_map": dict(self.config.get("security_map") or {}),
         }
         if paper_prices:
             shim["paper_prices"].update(paper_prices)
+        shim["crypto"] = {
+            "markets": crypto_markets,
+            "api_key_env": self.config.get("crypto", {}).get("api_key_env", "BINANCE_API_KEY"),
+            "api_secret_env": self.config.get("crypto", {}).get("api_secret_env", "BINANCE_API_SECRET"),
+        }
         self.equity_broker = make_broker(shim, self.db)
         self.equity_broker.login()
         from ..crypto import CryptoMicroBroker

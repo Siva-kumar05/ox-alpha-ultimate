@@ -137,6 +137,36 @@ def _script_successful_tick(session: _FakeSession) -> None:
     session.script("POST", "/marketfeed/quote", payload=_quote_payload())
 
 
+def _position_payload(sym="TCS", qty=75, avg=1100.05, sid="1333") -> list[dict]:
+    return [{"securityId": sid, "tradingSymbol": sym, "netQty": qty,
+             "averagePrice": avg, "productType": "INTRADAY"}]
+
+
+def _script_full_entry(session: _FakeSession, order_id="SO1", qty=75) -> None:
+    """Healthy broker-managed entry: quote -> bracket -> full fill -> bump."""
+    session.script("POST", "/marketfeed/ltp", payload=_ltp_payload())
+    session.script("POST", "/super/orders", payload={
+        "orderId": order_id, "orderStatus": "PENDING", "filledQty": 0, "averageTradedPrice": 0.0,
+    })
+    session.script("GET", "/super/orders", payload=[{
+        "orderId": order_id, "orderStatus": "TRADED", "filledQty": qty,
+        "averageTradedPrice": 1100.05,
+    }])
+    # breakeven (fees + buffer) exceeds the requested 1100.6 target -> bump
+    session.script("PUT", f"/super/orders/{order_id}", payload={})
+
+
+def _script_full_exit(session: _FakeSession, order_id="XO1", order_id_super="SO1", qty=75, price=1103.0) -> None:
+    """Healthy flatten: cancel bracket -> market exit -> confirmed fill."""
+    session.script("DELETE", f"/super/orders/{order_id_super}/ENTRY_LEG", payload={})
+    session.script("POST", "/orders", payload={
+        "orderId": order_id, "orderStatus": "PENDING", "filledQty": 0, "averageTradedPrice": 0.0,
+    })
+    session.script("GET", f"/orders/{order_id}", payload={
+        "orderId": order_id, "orderStatus": "TRADED", "filledQty": qty, "averageTradedPrice": price,
+    })
+
+
 def _script_failed_tick(session: _FakeSession, exc: Exception) -> None:
     # the LTP call fails first; the quote snapshot is never reached
     session.script("POST", "/marketfeed/ltp", exc=exc)
@@ -384,6 +414,122 @@ class RunLoopResilienceTests(unittest.TestCase):
         self.assertTrue((Path(self._directory) / "KILL.flag").exists())
         actions = self._audit_actions()
         self.assertIn("KILL_SWITCH", actions)
+
+    # ------------------------------------------------------------ chaos C #
+    # Chaos scenarios the clean-path harness never exercised: a quote feed
+    # that dies and never recovers while a position is open, a KILL.flag
+    # dropped mid-session, and a feed that disconnects and reconnects.
+
+    def test_feed_death_with_open_position_halts_and_flattens_exactly_once(self):
+        session = _FakeSession()
+        agent = self._agent_with_scripted_session(session)
+        # Boot restore must reconcile against the position we open next
+        # (replace the helper's empty-book entry with the position book).
+        session.responses[("GET", "/positions")] = deque([
+            dict(status=200, payload=_position_payload(), exc=None),
+        ])
+        _script_full_entry(session)
+        position = agent.oms.open_position("TCS", "BUY", 75, "chaos", 1000.0, 1100.6, "feed_death")
+        self.assertIsNotNone(position)
+        self.assertEqual(agent.oms.positions["TCS"]["qty"], 75)
+
+        # One healthy tick (its trailing reconcile sees the position), then
+        # the feed dies and NEVER recovers.
+        _script_successful_tick(session)
+        session.script("GET", "/positions", payload=_position_payload())
+        for _ in range(5):
+            _script_failed_tick(session, requests.exceptions.ConnectionError("feed down"))
+        # The halt kill-switch flattens through the broker; script that exit.
+        _script_full_exit(session)
+
+        self._run_forever(agent)
+
+        self.assertTrue(agent.comp.halted)
+        self.assertIn("Repeated broker/data error", agent.comp.halt_reason)
+        self.assertTrue(agent.stop)
+        self.assertTrue((Path(self._directory) / "KILL.flag").exists())
+        # Flattened exactly once through the venue: one market SELL, position
+        # gone locally, P&L journaled - nothing fabricated, nothing doubled.
+        order_posts = [body for method, path, body in session.calls
+                       if (method, path) == ("POST", "/orders")]
+        self.assertEqual(len(order_posts), 1, "kill switch must flatten exactly once")
+        self.assertEqual(order_posts[0]["transactionType"], "SELL")
+        self.assertEqual(agent.oms.positions, {})
+        actions = self._audit_actions()
+        self.assertIn("KILL_SWITCH", actions)
+        self.assertIn("POSITION_CLOSED", actions)
+        self.assertIn("POSITION_OPENED", actions)
+
+    def test_kill_flag_dropped_mid_session_stops_and_flattens_once(self):
+        session = _FakeSession()
+        agent = self._agent_with_scripted_session(session)
+        _script_full_entry(session)
+        position = agent.oms.open_position("TCS", "BUY", 75, "chaos", 1000.0, 1100.6, "kill_flag")
+        self.assertIsNotNone(position)
+        self.assertTrue(agent.oms.live)
+
+        # Operator drops the flag; the next tick_once must stop deliberately
+        # and flatten through the broker, not fabricate or double-execute.
+        kill_path = Path(agent.cfg.root) / "KILL.flag"
+        kill_path.write_text("OPERATOR\n", encoding="utf-8")
+        _script_full_exit(session)
+
+        agent.tick_once()
+
+        self.assertTrue(agent.stop, "KILL.flag must stop the loop deliberately")
+        order_posts = [body for method, path, body in session.calls
+                       if (method, path) == ("POST", "/orders")]
+        self.assertEqual(len(order_posts), 1, "kill switch must flatten exactly once")
+        self.assertEqual(agent.oms.positions, {})
+        self.assertFalse(agent.oms.live)
+        self.assertTrue(kill_path.exists())
+        actions = [row[0] for row in agent.db.q("SELECT action FROM audit")]
+        self.assertIn("KILL_SWITCH", actions)
+        self.assertIn("POSITION_CLOSED", actions)
+        kill_events = agent.db.q("SELECT msg FROM events WHERE kind='KILL'")
+        self.assertTrue(kill_events and "KILL.flag detected" in kill_events[0][0])
+
+    def test_feed_disconnect_mid_run_reconnects_without_half_state(self):
+        session = _FakeSession()
+        agent = self._agent_with_scripted_session(session, reconcile_every_tick=True)
+        # healthy, dead, then healthy again (with slack so the loop never runs
+        # out of scripted responses before the test stops it); every healthy
+        # tick reconciles against an empty broker book and must stay consistent.
+        _script_successful_tick(session)
+        session.script("GET", "/positions", payload=[])
+        _script_failed_tick(session, requests.exceptions.ConnectionError("blip"))
+        for _ in range(12):
+            _script_successful_tick(session)
+            session.script("GET", "/positions", payload=[])
+
+        def _ltp_calls():
+            return [c for c in session.calls if c[:2] == ("POST", "/marketfeed/ltp")]
+
+        thread = threading.Thread(target=self._run_forever, args=(agent,), daemon=True)
+        thread.start()
+        try:
+            # Stop once the loop has demonstrably recovered: several healthy
+            # ticks after the single failed one (counter reset to 0).  Plain
+            # attribute/call signals only - no DB reads that could race close.
+            deadline = time.monotonic() + 30.0
+            while time.monotonic() < deadline:
+                if (len(_ltp_calls()) >= 6 and agent.broker_error_count == 0
+                        and agent.rate_limit_count == 0):
+                    break
+                time.sleep(0.01)
+            agent.stop = True
+            thread.join(timeout=15.0)
+        finally:
+            agent.stop = True
+            thread.join(timeout=2.0)
+
+        self.assertFalse(thread.is_alive(), "run_forever did not stop")
+        self.assertFalse(agent.comp.halted, "a transient feed blip must not halt")
+        self.assertEqual(agent.broker_error_count, 0, "recovery must reset the counter")
+        self.assertTrue(agent.oms.live, "reconcile stayed consistent: no half-state")
+        self.assertEqual(agent.oms.positions, {})
+        self.assertFalse((Path(self._directory) / "KILL.flag").exists())
+        self.assertNotIn("HALT", self._audit_actions())
 
 
 if __name__ == "__main__":

@@ -5,10 +5,10 @@ requests>=2.32.4,<3
 pyotp>=2.9,<3
 streamlit>=1.57,<2
 websocket-client>=1.8,<2
-# -- 100x optional extensions (install only what you wire) ---------------
+# -- optional extensions (install only what you wire) -------------------
 # dhanhq>=2.0          # Dhan official SDK (live NSE)
 # growwapi>=1.0        # Groww official SDK
-# ccxt>=4.2            # Binance / multi-exchange crypto
+ccxt>=4.2            # Binance spot + USDT-M perps (live crypto, promax)
 # torch>=2.4           # HedgingRNN GRU (optional, falls back to Ridge)
 # arch>=7.0            # GARCH vol (optional)
 # websockets>=12.0     # Binance spot L1 stream

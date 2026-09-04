@@ -86,6 +86,44 @@ sqlite3 oxalpha.db "SELECT * FROM events WHERE kind='ALPHA_DECAY_ALERT' AND ts >
 
 ---
 
+## Live Launch (Dhan / Binance)
+
+Credentials are stored **once** in `~/.ox_secrets.env` (chmod 600) by an
+interactive prompt; re-run it any time a key changes:
+
+```bash
+bash scripts/setup-live.sh        # prompts: Dhan client ID/token, instance IP, Binance key/secret
+```
+
+Launch with one command - the launcher sources the secrets file, flips the
+right config to `mode: live`, and runs the venue:
+
+```bash
+bash scripts/live.sh live-test    # Dhan connectivity + credential check (exit 0/2, safe)
+bash scripts/live.sh dhan         # legacy NSE intraday agent, live Dhan
+bash scripts/live.sh binance      # promax orchestrator: Dhan equity + Binance spot/perp
+bash scripts/live.sh track        # track record
+bash scripts/live.sh status       # positions / strategies / recent trades
+bash scripts/live.sh paper        # paper boot (reverts the config edits)
+```
+
+Gates that must be true before the first live order:
+
+- `OX_LIVE_EXECUTION_APPROVED` is written by the setup script (never type
+  real money through a session that lacks it).
+- The Dhan IP whitelist (`ip_whitelist` + `DHAN_STATIC_IP` env) contains the
+  instance's **public** IP; the boot's egress check verifies it.
+- `OX_AUDIT_KEY` is auto-generated when left blank.
+- Binance live additionally needs `OX_PROMAX_AUTO_APPROVE` **unset** so every
+  order goes through `python run.py intents` / `ok <iid>` human approval.
+
+**Choice India is a fail-closed scaffold, not a wired adapter**: credentials
+are accepted by the setup flow, but `platform: choice` refuses login and every
+order/data call with a clear "not wired" error until a real adapter lands.
+Never point the promax or legacy runtime at a venue that cannot execute.
+
+---
+
 ## Emergency Procedures
 
 ### Kill Switch Activation

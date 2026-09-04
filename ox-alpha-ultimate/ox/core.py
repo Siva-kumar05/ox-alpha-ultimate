@@ -129,11 +129,15 @@ class Cfg:
             raise ConfigError("mode must be 'paper' or 'live'")
         if platform not in {"paper", "dhan"}:
             raise ConfigError(
-                "platform must be 'paper' or 'dhan' (groww/tradingview/crypto adapters are "
-                "research-only scaffolds and are deliberately not selectable: see ox/core.py)"
+                "platform must be 'paper' or 'dhan' (groww/tradingview/choice are "
+                "not-wired scaffolds that fail closed; live crypto runs through the "
+                "promax orchestrator with config_promax.yaml, see docs/PROMAX_AGENTS.md)"
             )
         if mode == "live" and platform != "dhan":
-            raise ConfigError("live mode currently supports platform: dhan only")
+            raise ConfigError(
+                "live mode currently supports platform: dhan only in the legacy runtime; "
+                "live crypto is available via the promax orchestrator (config_promax.yaml)"
+            )
         if mode == "live" and os.getenv("OX_LIVE_EXECUTION_APPROVED", "") != "YES_I_UNDERSTAND_LIVE_TRADING":
             raise ConfigError(
                 "live mode requires explicit operator affirmation in the host environment: "
@@ -374,10 +378,28 @@ class Cfg:
             raise ConfigError("db_path must be a file inside the project directory")
         self.d["db_path"] = str((self.root / db_name).resolve())
 
-        if mode == "live":
-            mapping = self.d.get("security_map")
-            if not isinstance(mapping, Mapping) or any(symbol not in mapping for symbol in self.d["symbols"]):
-                raise ConfigError("live mode requires a security_map entry for every configured symbol")
+        # security_map must mirror the configured symbols in BOTH directions:
+        # every symbol needs a Dhan securityId, and a map entry with no
+        # configured symbol is stale drift that fails closed at the first
+        # lookup instead.  Fail fast at boot, naming the offending symbol.
+        mapping = self.d.get("security_map")
+        if mapping is not None and not isinstance(mapping, Mapping):
+            raise ConfigError("security_map must be a mapping of symbol to Dhan securityId")
+        if isinstance(mapping, Mapping) and mapping:
+            symbols_set = set(self.d["symbols"])
+            normalized = {str(k).upper() for k in mapping}
+            missing = sorted(symbol for symbol in self.d["symbols"] if symbol not in normalized)
+            if missing:
+                raise ConfigError(
+                    "security_map is missing entries for configured symbols: " + ", ".join(missing)
+                )
+            extra = sorted(str(k) for k in mapping if str(k).upper() not in symbols_set)
+            if extra:
+                raise ConfigError(
+                    "security_map contains entries not in symbols: " + ", ".join(extra)
+                )
+        elif mode == "live":
+            raise ConfigError("live mode requires a security_map entry for every configured symbol")
 
     def __getitem__(self, key: str):
         return self.d[key]

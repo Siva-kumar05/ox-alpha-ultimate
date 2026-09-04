@@ -362,6 +362,100 @@ class LiveBrokerContractTests(unittest.TestCase):
         self.assertNotIn("TCS", self.oms.positions)
         self.assertEqual(self.oms.inflight_orders, {})
 
+    # ------------------------------------------------------------ chaos #
+    # Order-sequence chaos on the live execution path: an exit placement
+    # that raises mid-sequence and partial fills on the EOD square-off.
+
+    def _open_75(self):
+        self._script_open()
+        self._script_confirm(filled_qty=75, avg=1100.05)
+        # breakeven (fees + buffer) exceeds the 1100.6 target -> target bump
+        self.session.script("PUT", "/super/orders/SO1", payload={})
+        position = self.oms.open_position("TCS", "BUY", 75, "chaos", 1000.0, 1100.6, "signal")
+        self.assertIsNotNone(position)
+        return position
+
+    def test_exit_order_raise_mid_sequence_preserves_position_no_fabrication(self):
+        self._open_75()
+        # Bracket cancel succeeds, then the exit market order dies on the wire.
+        self.session.script("DELETE", "/super/orders/SO1/ENTRY_LEG", payload={})
+        self.session.script("POST", "/orders", exc=requests.exceptions.ConnectionError("reset"))
+        with self.assertRaises(BrokerError):
+            self.oms.close("TCS", "OPPOSITE_SIGNAL")
+        # Local state still matches broker truth: 75 held, no trade fabricated,
+        # and exactly ONE exit attempt - never a blind retry or double send.
+        self.assertEqual(self.oms.positions["TCS"]["qty"], 75)
+        self.assertEqual(self.db.q("SELECT COUNT(*) FROM trades")[0][0], 0)
+        self.assertEqual(
+            [(m, p) for m, p in self.session.call_paths() if p == "/orders"],
+            [("POST", "/orders")],
+        )
+        # Venue recovers: a fresh close goes out exactly once more and lands.
+        self.session.script("DELETE", "/super/orders/SO1/ENTRY_LEG", payload={})
+        self.session.script("POST", "/orders", payload={
+            "orderId": "EO9", "orderStatus": "PENDING", "filledQty": 0, "averageTradedPrice": 0.0,
+        })
+        self.session.script("GET", "/orders/EO9", payload={
+            "orderId": "EO9", "orderStatus": "TRADED", "filledQty": 75, "averageTradedPrice": 1103.0,
+        })
+        self.assertTrue(self.oms.close("TCS", "OPPOSITE_SIGNAL"))
+        self.assertNotIn("TCS", self.oms.positions)
+        trades = self.db.q("SELECT qty,exit_reason FROM trades")
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0][1], "OPPOSITE_SIGNAL")
+        order_posts = [m for m, p in self.session.call_paths() if p == "/orders"]
+        self.assertEqual(order_posts.count("POST"), 2)  # one failed + one clean
+
+    def test_partial_exit_on_eod_squareoff_journals_and_rearms_stop(self):
+        self._open_75()
+        # EOD square-off: exit legs keep filling short of the 75 held.
+        self.session.script("DELETE", "/super/orders/SO1/ENTRY_LEG", payload={})
+        # attempt 1: 30 of 75 fill
+        self.session.script("POST", "/orders", payload={
+            "orderId": "PE1", "orderStatus": "PENDING", "filledQty": 0, "averageTradedPrice": 0.0,
+        })
+        self.session.script("GET", "/orders/PE1", payload={
+            "orderId": "PE1", "orderStatus": "TRADED", "filledQty": 30, "averageTradedPrice": 1103.0,
+        })
+        # attempts 2 and 3: nothing fills (thin book at the bell)
+        for attempt in ("PE2", "PE3"):
+            self.session.script("POST", "/orders", payload={
+                "orderId": attempt, "orderStatus": "PENDING", "filledQty": 0, "averageTradedPrice": 0.0,
+            })
+            self.session.script("GET", f"/orders/{attempt}", payload={
+                "orderId": attempt, "orderStatus": "TRADED", "filledQty": 0, "averageTradedPrice": 0.0,
+            })
+        # protective stop re-arm for the residual 45 (A2)
+        self.session.script("POST", "/orders", payload={
+            "orderId": "PS1", "orderStatus": "PENDING", "filledQty": 0, "averageTradedPrice": 0.0,
+        })
+
+        with self.assertRaises(OrderError) as ctx:
+            self.oms.squareoff_eod()
+        self.assertIn("partially filled", str(ctx.exception))
+        # The filled 30 were journaled (P&L never vanishes), the residual 45
+        # stays protected by a broker stop, local state shrinks to broker truth.
+        trades = self.db.q("SELECT qty,exit_reason FROM trades")
+        self.assertEqual(len(trades), 1)
+        self.assertEqual((int(trades[0][0]), str(trades[0][1])), (30, "EOD_SQUAREOFF_PARTIAL"))
+        self.assertEqual(self.oms.positions["TCS"]["qty"], 45)
+        audits = [row[1] for row in self.db.q("SELECT aid,action FROM audit")]
+        self.assertIn("PARTIAL_EXIT_JOURNALED", audits)
+        self.assertIn("PROTECTIVE_STOP_REARMED", audits)
+        # bounded: exactly 3 exit attempts + 1 stop re-arm, never more
+        stop_posts = [body for method, path, body in self.session.calls
+                      if (method, path) == ("POST", "/orders")]
+        self.assertEqual(len(stop_posts), 4)
+        self.assertEqual(stop_posts[-1]["orderType"], "STOP_LOSS")
+        self.assertEqual(stop_posts[-1]["quantity"], 45)
+        # ledger stays consistent with the broker: reconcile of 45 passes
+        self.session.script("GET", "/positions", payload=[{
+            "securityId": "1333", "tradingSymbol": "TCS", "netQty": 45,
+            "averagePrice": 1100.05, "productType": "INTRADAY",
+        }])
+        self.oms.reconcile()
+        self.assertTrue(self.oms.live)
+
 
 if __name__ == "__main__":
     unittest.main()

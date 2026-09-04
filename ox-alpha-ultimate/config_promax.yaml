@@ -47,6 +47,22 @@ risk:
     max_daily_loss_pct: 0.03
     max_drawdown_pct: 0.15
 
+# Live crypto (optional): with mode: live, crypto agents trade real Binance.
+# Swap symbols use USDT-M perpetuals (leverage ladder + real funding rates);
+# spot symbols are cash-only and refuse leveraged orders.  Credentials come
+# from BINANCE_API_KEY / BINANCE_API_SECRET env vars (configurable below) and
+# live mode additionally requires OX_LIVE_EXECUTION_APPROVED=YES_I_UNDERSTAND_LIVE_TRADING.
+crypto:
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+  markets:
+    BTCUSDT: swap
+    ETHUSDT: swap
+    SOLUSDT: swap
+    PEPEUSDT: spot
+    WIFUSDT: spot
+    BONKUSDT: spot
+
 data_pump:
   interval_seconds: 5
 
