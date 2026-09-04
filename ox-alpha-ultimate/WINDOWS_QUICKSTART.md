@@ -1,5 +1,9 @@
 # OX-Alpha Windows Quickstart
 
+**Fastest path — no typing, no `cd`, no bash:** double-click `0_START_HERE.cmd`
+in the repo folder (the leading `0` sorts it to the top of Explorer) and press
+one menu digit.
+
 Everything below runs from PowerShell and needs **no `cd`** and **no bare
 `bash`** (PowerShell's `bash` is the WSL relay and cannot run these scripts —
 the `.cmd` wrappers locate real Git Bash at `C:\Program Files\Git\bin\bash.exe`).

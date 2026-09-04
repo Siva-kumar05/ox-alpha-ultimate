@@ -1,5 +1,32 @@
 # Review changelog — this pass
 
+## Double-click entry point: 0_START_HERE.cmd (2026-09-04)
+
+The user failed terminal interaction three-plus times (wrong folder in both
+PowerShell and Git Bash, WSL-bash relay, mangled pastes with invisible
+characters) despite clean instructions — the bottleneck was terminal usage
+itself. Removed it: one Explorer double-click at the repo root presents a
+numbered menu that needs a single digit + Enter and nothing else:
+
+- **[1] Enter keys once** → `setup-live.cmd` (hidden prompts),
+  **[2] Readiness** → `start-live.cmd preflight`, **[3] Analysis run on live
+  dhan** → `start-live.cmd dhan` (label is honest: week-1 boots into
+  OBSERVATION, no entries until real OOS edge), **[4] Status** →
+  `start-live.cmd status`, **[5]** opens WINDOWS_QUICKSTART.md, **[0]** exit.
+- Changes to its own folder; calls the existing proven wrappers by full path
+  with `call` (they use `exit /b`, so control returns to the menu). Refuses
+  any command-line argument with the hygiene message; never accepts or echoes
+  a token. If `~/.ox_secrets.env` is absent, [3] tells the user to run [1]
+  first. Menu window stays open (loop + pause) until [0].
+- Block-safe cmd conventions (no stray parentheses in echoed text inside
+  blocks); plain ASCII throughout. WINDOWS_QUICKSTART.md now points to it at
+  the top. Launcher/UX only — no order/training/sizing/gate semantics or
+  product code changed.
+
+**Verified:** arg-refusal and menu dispatch from C:\WINDOWS\System32 via
+PowerShell; [2] runs the real preflight → 0 FAIL on the launch copy;
+Windows/3.14 full suite 233 passed + 10 subtests; ruff F 0.
+
 ## Token-freshness gate at the launcher (2026-09-04)
 
 Prevents the recurring stale/expired-token launch failure. `scripts/live.sh`
