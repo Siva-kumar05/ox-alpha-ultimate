@@ -1,5 +1,29 @@
 # Review changelog — this pass
 
+## Token-freshness gate at the launcher (2026-09-04)
+
+Prevents the recurring stale/expired-token launch failure. `scripts/live.sh`
+now decodes the DHAN_TOKEN JWT's `exp` claim OFFLINE (pure base64 string math
+in `_dhan_token_exp_epoch` — no network, no broker call) after sourcing
+`~/.ox_secrets.env` and before any command branch uses the token:
+
+- **Expired** (exp <= now): refuses to launch, exit 2, naming the exact
+  expiry time and the remedy (re-enter via `setup-live.cmd` or
+  `start-daily.cmd`'s masked prompt). Never launch with an expired token.
+- **Expiring within 6 hours**: prominent WARNING naming the expiry time and
+  time remaining, so a long closed-market analysis session is not surprised
+  mid-run.
+- **Opaque (non-JWT) tokens and JWTs without an `exp` claim**: skipped
+  silently — no breakage for tokens that don't carry an expiry.
+- The token or any payload beyond the expiry timestamp is never printed.
+  `preflight` stays zero-credential (no secrets file, no check).
+- Launcher/UX only — no order, training, sizing, or gate semantics touched,
+  no `run.py` behavior change.
+
+**Verified:** synthetic-JWT unit proofs across all five cases (expired →
+exit 2; expiring-soon → WARN; valid / opaque / no-exp → silent, exit 0);
+Windows/3.14 full suite 233 passed + 10 subtests; ruff F 0; smoketest PASS.
+
 ## Secret-on-argv hardening + PowerShell-safe launcher (2026-09-04)
 
 Root-cause hardening after a live Dhan JWT was pasted onto the command line

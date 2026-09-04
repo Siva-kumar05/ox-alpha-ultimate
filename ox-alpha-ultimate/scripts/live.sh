@@ -32,6 +32,58 @@ require() {
   done
 }
 
+# Offline JWT expiry decode for the Dhan access token: pure string/base64
+# math, no network, no broker call.  Non-JWT (opaque) tokens and JWTs without
+# an exp claim are skipped silently.  Never echoes the token or payload.
+_dhan_token_exp_epoch() {
+  local token="$1" payload b64 decoded exp
+  case "$token" in
+    *.*.*) ;;
+    *) return 1 ;;
+  esac
+  payload="${token#*.}"
+  payload="${payload%%.*}"
+  b64="$(printf '%s' "$payload" | tr '_-' '/+')"
+  case "$(( ${#b64} % 4 ))" in
+    2) b64="${b64}==" ;;
+    3) b64="${b64}=" ;;
+  esac
+  decoded="$(printf '%s' "$b64" | base64 -d 2>/dev/null)" || return 1
+  exp="$(printf '%s' "$decoded" | sed -n 's/.*"exp"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)"
+  [ -n "$exp" ] || return 1
+  printf '%s' "$exp"
+}
+
+# Refuse to launch on an already-expired token (naming the exact expiry time),
+# warn prominently when it expires within the next 6 hours so a long
+# closed-market session is not surprised mid-run.  Skipped silently for
+# opaque tokens or tokens without an exp claim.
+_check_dhan_token_expiry() {
+  local token="${DHAN_TOKEN:-}" exp now remaining when
+  [ -n "$token" ] || return 0
+  exp="$(_dhan_token_exp_epoch "$token")" || return 0
+  case "$exp" in
+    *[!0-9]*) return 0 ;;
+  esac
+  now="$(date +%s)"
+  remaining=$(( exp - now ))
+  when="$(date -d "@$exp" '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null \
+    || date -r "$exp" '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null \
+    || echo "epoch $exp")"
+  if [ "$remaining" -le 0 ]; then
+    echo "ERROR: the DHAN_TOKEN in your secrets file EXPIRED at $when." >&2
+    echo "Enter a fresh token now - run setup-live.cmd, or start-daily.cmd's masked" >&2
+    echo "daily-token prompt.  Never launch with an expired or exposed token." >&2
+    exit 2
+  fi
+  if [ "$remaining" -le 21600 ]; then
+    echo "WARNING: DHAN_TOKEN expires at $when" >&2
+    echo "         (in ~$((remaining / 3600))h $(((remaining % 3600) / 60))m) - re-enter a" >&2
+    echo "         fresh token before launching if the session may run past then." >&2
+  fi
+  return 0
+}
+
 load_secrets() {
   if [ ! -f "$SECRETS" ]; then
     echo "ERROR: $SECRETS not found - run 'bash scripts/setup-live.sh' first." >&2
@@ -43,6 +95,8 @@ load_secrets() {
   set +a
   # The live gates must never depend on a hand-edited file dropping the flag.
   export OX_LIVE_EXECUTION_APPROVED='YES_I_UNDERSTAND_LIVE_TRADING'
+  # Freshness gate before any command branch uses the token.
+  _check_dhan_token_expiry
 }
 
 _hygiene_msg() {
