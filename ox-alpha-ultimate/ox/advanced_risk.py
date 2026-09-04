@@ -9,6 +9,7 @@ Integrates best practices from:
 """
 from __future__ import annotations
 
+import math
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -378,15 +379,18 @@ class FactorRiskModel:
         n_total = len(violations)
         expected = alpha * len(violations)
         
-        # Kupiec test
-        from scipy.stats import chi2
+        # Kupiec test.  chi2 with 1 degree of freedom is the square of a
+        # standard normal, so its survival function is erfc(sqrt(x/2)) -
+        # computable with stdlib math.  scipy is an optional dependency
+        # (probed above; CI installs only requirements.txt), so backtest_var
+        # must not require it.
         if n_violations > 0 and n_violations < len(violations):
             lr_uc = -2 * np.log(
                 (1 - alpha)**(n_total - n_violations) * alpha**n_violations /
                 ((n_violations / n_total)**n_violations * 
                  (1 - n_violations / n_total)**(n_total - n_violations))
             )
-            p_value = 1 - chi2.cdf(lr_uc, 1)
+            p_value = math.erfc(math.sqrt(lr_uc / 2.0))
         else:
             lr_uc = np.nan
             p_value = np.nan

@@ -1,5 +1,24 @@
 # Review changelog — this pass
 
+## CI 3.12 verdict: scipy optional-dependency crash in Kupiec backtest (2026-09-04)
+
+First-ever GitHub Actions run (root-level workflow) failed the pytest job on
+Linux/Python 3.12: `FactorRiskModel.backtest_var` did a lazy
+`from scipy.stats import chi2` with no fallback, but scipy is an optional
+dependency (probed at module import; absent from `requirements.txt`) — so
+the Kupiec branch crashed in CI's minimal env while passing locally where
+scipy happened to be installed. The other 25 Docker-reported failures were
+artifacts of an uncommitted `config.yaml` edit (duplicate top-level
+`risk:`/`mode:` keys) and do not reproduce on the committed tree.
+
+**Fix:** chi² with 1 degree of freedom is the square of a standard normal,
+so its survival function is `math.erfc(sqrt(x/2))` — bit-identical to
+scipy across the tested range, stdlib only. `backtest_var` no longer
+requires scipy.
+
+**Verified:** Linux/3.12 Docker full suite 222 passed (was 26 failed);
+Windows/3.14 222 passed + 10 subtests; ruff F 0; smoketest PASS.
+
 ## KILL.flag resolution: tolerant history ingestion (2026-09-04)
 
 **Root cause of the RELIANCE halt:** `Agent.refresh_history` raised
