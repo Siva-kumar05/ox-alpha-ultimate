@@ -979,7 +979,7 @@ def rsi_divergence(c, n=14, look=5):
     r = rsi(c, n)
     out = np.zeros_like(c)
     for i in range(look * 2, len(c)):
-        pl, ph = c[i - look], c[i]
+        pl = c[i - look]
         rl, rh = r[i - look], r[i]
         if np.isnan(rl) or np.isnan(rh):
             continue
@@ -1082,7 +1082,6 @@ def cpr(h, l, c, n=1):
         p = (h[i - 1] + l[i - 1] + c[i - 1]) / 3
         pivot[i] = p
         bcl = (h[i - 1] + l[i - 1]) / 2
-        tcl = p + (h[i - 1] - l[i - 1]) / 2 if p > bcl else bcl
         bc[i] = min(bcl, p + (h[i - 1] - l[i - 1]) / 2)
         tc[i] = max(bcl, p + (h[i - 1] - l[i - 1]) / 2)
     return pivot, bc, tc

@@ -147,7 +147,7 @@ def lookahead_probe(signals_fn, data_factory, perturb_last: bool = True) -> dict
     Recomputes the signal on a truncated series vs the full series; the
     overlapping prefix must be identical.
     """
-    full = signals_fn(data_factory(len_full := 300))
+    full = signals_fn(data_factory(300))
     truncated = signals_fn(data_factory(250))
     prefix_equal = bool(np.allclose(full[:250], truncated[:250], equal_nan=True))
     return {"lookahead_free": prefix_equal, "checked_bars": 250}

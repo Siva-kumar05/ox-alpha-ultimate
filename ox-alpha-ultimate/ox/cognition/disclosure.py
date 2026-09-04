@@ -101,8 +101,6 @@ class ProgressiveDisclosure:
         empty = sum(1 for l in lines if not l.strip())
         code_like = sum(1 for l in lines if l.strip().startswith(("def ", "class ", "import ", "# ", "- ", "* ")))
         table_like = sum(1 for l in lines if _is_table_line(l))
-        first_nonempty = next((i for i, l in enumerate(lines) if l.strip()), 0)
-        last_nonempty = len(lines) - next((i for i, l in enumerate(reversed(lines)) if l.strip()), 0) - 1
         header = (
             f"[_progressive:{token} → {total} lines total; "
             f"empty={empty}, code-like={code_like}, table-like={table_like}]"
@@ -443,7 +441,7 @@ class OpenAPIGenerator:
             content = (body.get("content") or {}).get("application/json") or {}
             body_type = self._py_type(((content.get("schema") or {}).get("type")), None)
             sig_params.append(f"body: {body_type} | None = None")
-            doc_lines.append(f"        body: JSON request body (application/json)")
+            doc_lines.append("        body: JSON request body (application/json)")
 
         doc_lines.append('        """')
         signature = f"    def {fn_name}(" + ", ".join(sig_params) + "):"

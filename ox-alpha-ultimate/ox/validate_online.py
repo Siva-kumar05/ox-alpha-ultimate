@@ -14,8 +14,6 @@ SKIP, so CI/paper environments without network don't fail.
 
 from __future__ import annotations
 
-import csv
-import io
 from typing import Dict, List
 
 import numpy as np

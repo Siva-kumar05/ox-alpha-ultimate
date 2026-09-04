@@ -27,7 +27,6 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from .. import indicators as I
-from ..core import LOG
 
 DEFAULT_THRESHOLD = 0.15
 

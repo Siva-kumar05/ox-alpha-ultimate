@@ -7,18 +7,14 @@ Uses order flow, VWAP deviation, and micro-structure patterns.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 
 import numpy as np
-import pandas as pd
 
-from .base import BaseAgent, AgentConfig, RiskParams, Signal, Position, AgentType
-from .risk_coordinator import RiskCoordinator
-from .capital_allocator import CapitalAllocator
+from .base import BaseAgent, AgentConfig, Signal
 
 LOG = logging.getLogger("promax.intraday_scalper")
 

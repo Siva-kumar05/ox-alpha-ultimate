@@ -1,11 +1,10 @@
 """10x Observability: Metrics, alerts, and performance profiling."""
 from __future__ import annotations
-import json
 import time
 import threading
 import numpy as np
 from typing import Dict, List, Any, Optional
-from .core import LOG, iso
+from .core import iso
 
 
 class MetricsCollector:

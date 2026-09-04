@@ -7,16 +7,14 @@ Uses multi-timeframe momentum, relative strength, and volume confirmation.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
-import pandas as pd
 
-from .base import BaseAgent, AgentConfig, RiskParams, Signal, Position, AgentType
+from .base import BaseAgent, AgentConfig, Signal
 from .risk_coordinator import RiskCoordinator
 from .capital_allocator import CapitalAllocator
 
@@ -186,9 +184,7 @@ class EquityMomentumAgent(BaseAgent):
         volumes_arr = np.array(volumes)
         highs_arr = np.array(highs)
         lows_arr = np.array(lows)
-        
-        current_price = prices_arr[-1]
-        
+
         # Multi-timeframe momentum
         for period in self.lookback_periods:
             if len(prices_arr) >= period + 1:
@@ -385,7 +381,6 @@ class EquityMomentumAgent(BaseAgent):
                 continue
             
             current_price = position.current_price
-            entry_price = position.entry_price
             atr = getattr(self.momentum_states.get(symbol), 'atr', current_price * 0.02)
             
             # Trailing stop

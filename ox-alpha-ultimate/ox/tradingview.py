@@ -9,8 +9,6 @@ from __future__ import annotations
 import hmac
 import hashlib
 import json
-import time
-from typing import Any
 
 class TradingViewHub:
     def __init__(self, cfg, db):
@@ -27,7 +25,6 @@ class TradingViewHub:
                 return False
         # Persist for training
         try:
-            from .core import iso
             self.db.ex("INSERT INTO events(kind,msg,ts)VALUES('TV_SIGNAL',?,?)",
                        (json.dumps(payload)[:1000], __import__("ox.core", fromlist=["iso"]).iso()))
             # Also kv for quick lookup

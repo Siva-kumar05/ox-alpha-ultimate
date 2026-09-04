@@ -18,12 +18,10 @@ No network, no broker account, and no wall-clock sleeps are involved.
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import tempfile
 import unittest
-from collections import deque
 from pathlib import Path
 
 import requests
@@ -33,7 +31,7 @@ from ox.brokers import BrokerError, DhanBroker, OrderError, RateLimitError
 from ox.compliance import Compliance
 from ox.core import DB, SecurityError
 from ox.oms import OMS
-from support import _AttrDict, _FakeResponse, _FakeSession, _LTP_PAYLOAD, _StubRisk
+from support import _AttrDict, _FakeSession, _LTP_PAYLOAD, _StubRisk
 
 _AUDIT_KEY = "live-contract-audit-key-at-least-thirty-two-chars"
 

@@ -318,7 +318,7 @@ class FailoverBrokerManager:
                     elif health.state == BrokerState.RECOVERING and health.consecutive_successes >= 3:
                         health.state = BrokerState.HEALTHY
                         
-                except Exception as e:
+                except Exception:
                     health = self._health[name]
                     health.consecutive_failures += 1
                     health.consecutive_successes = 0

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .vectors import embed, cosine, DIMENSIONS
+from .vectors import embed, cosine
 import numpy as np
 
 

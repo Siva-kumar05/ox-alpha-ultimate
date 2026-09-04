@@ -1,11 +1,11 @@
 """Post-Trade Analysis and Alpha Decay Tracking."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 import numpy as np
 import pandas as pd
-from .core import LOG, iso, DB
+from .core import iso, DB
 
 
 @dataclass

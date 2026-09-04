@@ -17,7 +17,6 @@ import tomllib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 try:
     import yaml  # type: ignore
@@ -378,7 +377,6 @@ class SemanticASTQueries:
         """Direct callees inside the body of function_name."""
         if not self.indexed:
             self.index()
-        key = function_name
         for fn in self.functions.values():
             if fn.name == function_name:
                 return [{"called": c} for c in fn.calls]

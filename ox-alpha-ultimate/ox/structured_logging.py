@@ -7,8 +7,6 @@ import time
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional
-from pathlib import Path
-from .core import LOG, iso
 
 
 class JSONFormatter(logging.Formatter):

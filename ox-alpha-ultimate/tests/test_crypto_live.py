@@ -21,15 +21,13 @@ runs its real control flow against canned venue state.
 from __future__ import annotations
 
 import builtins
-import sys
-from types import SimpleNamespace
 
 import pytest
 
 from ox.agents.orchestrator import AgentOrchestrator
 from ox.brokers import AuthenticationError, BrokerError, MarketDataError, OrderError
 from ox.crypto import CryptoMicroBroker
-from support import ScriptedCcxt, install_fake_ccxt, live_env, make_live_broker
+from support import ScriptedCcxt, live_env, make_live_broker
 
 
 # ── paper / separation ───────────────────────────────────────────────────────

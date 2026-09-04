@@ -7,16 +7,13 @@ Uses social sentiment, volume spikes, and momentum.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List
 
-import numpy as np
 
-from .base import BaseAgent, AgentConfig, RiskParams, Signal, Position, AgentType
+from .base import BaseAgent, AgentConfig, Signal
 from .risk_coordinator import RiskCoordinator
 from .capital_allocator import CapitalAllocator
 
@@ -169,9 +166,9 @@ class CryptoMemeSwingAgent(BaseAgent):
         state.volume_history.append(state.volume_24h)
         
         max_hist = 500
-        if len(state.price_history) > 500:
-            state.price_history = state.price_history[-500:]
-            state.volume_history = state.volume_history[-500:]
+        if len(state.price_history) > max_hist:
+            state.price_history = state.price_history[-max_hist:]
+            state.volume_history = state.volume_history[-max_hist:]
         
         # Social data
         social = self.social_data.get(symbol, {})

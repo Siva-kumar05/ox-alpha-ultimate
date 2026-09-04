@@ -850,7 +850,6 @@ def bayesian_optimization(fitness, bounds, n_init=5, n_iter=15, seed=0):
     for _ in range(n_iter):
         mu = y.mean()
         sd = y.std() + 1e-9
-        best_y = y.max()
         # Expected-improvement sampling on a distance kernel.
         cands = rng.uniform(lo, hi, (64, len(bounds)))
         scores = []

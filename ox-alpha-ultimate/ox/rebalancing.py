@@ -1,11 +1,10 @@
 """Dynamic Rebalancing and Hedging Capability."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 from enum import Enum
 import numpy as np
-import pandas as pd
 from .core import iso, LOG
 from .risk import RiskManager, CovarianceMatrix
 
@@ -235,7 +234,6 @@ class PortfolioHedger:
         weights = self.risk.compute_current_weights(positions, prices)
         
         # Get historical returns for each position
-        portfolio_returns = []
         for sym, weight in weights.items():
             if weight <= 0:
                 continue

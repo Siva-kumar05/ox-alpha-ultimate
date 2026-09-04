@@ -9,11 +9,9 @@ the failure of one never cascades.
 from __future__ import annotations
 
 import logging
-import traceback
 from pathlib import Path
 from typing import Any
 
-from .diagnosis import DifferentialEngine
 from .explanation import DecisionLedger, DecisionRecord
 from .learning import FailureAutopsy, PreferenceLearner, SkillExtractor
 from .memory import MemoryStore

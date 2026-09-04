@@ -1,5 +1,77 @@
 # Review changelog — this pass
 
+## KILL.flag resolution: tolerant history ingestion (2026-09-04)
+
+**Root cause of the RELIANCE halt:** `Agent.refresh_history` raised
+`MarketDataError` on the first malformed row in the broker's history batch
+(a non-numeric timestamp), which `boot()` treats as a fatal reconcile
+failure — so one bad candle out of thousands halted the agent and wrote
+`KILL.flag`. The halt was fail-closed by design but the trip threshold was
+wrong: it fired on a single noisy row instead of on genuinely corrupt data.
+
+**Fix:** malformed rows (non-numeric fields, non-positive/inf prices,
+inconsistent OHLC) are now skipped with a warning-level log line naming the
+symbol and failure class. The gate still fails closed when corruption is
+systemic — at least `MIN_REJECTED_FOR_SYSTEMIC` (5) rows AND more than
+`MAX_BAD_CANDLE_FRACTION` (25%) of the batch rejected — and an empty or
+all-bad batch still raises. The absolute floor keeps a stray bad row in a
+short batch from counting as systemic. `KILL.flag` cleared after the fix.
+
+**Tests:** new `tests/test_history_ingestion.py` (7 cases): single
+non-numeric candle skipped while good candles persist, NaN/inconsistent
+OHLC rows skipped, minority corruption tolerated up to the gate, systemic
+corruption (6/10) fails closed, all-bad and empty batches fail closed, gate
+constants sanity. Suite: 222 passed, 10 subtests. Smoketest: PASS.
+
+---
+
+## Quality/correctness pass (ruff + full suite, 2026-09-04)
+
+**Lint: 249 pyflakes findings fixed to zero.** `ruff check --select F`
+(now the CI gate) found 188 unused imports, 56 unused locals, 5 pointless
+f-strings across `ox/`, `tests/`, `run.py`, `dashboard.py`,
+`dashboard_data.py`, `app_pages/`. 185 auto-fixed; the rest reviewed
+individually. Optional-dependency probes (sklearn/scipy/cvxpy/pymysql
+imports inside `try/except` that set `*_AVAILABLE` flags) were kept with
+`# noqa: F401 - availability probe` comments. Dynamically-resolved agent
+classes restored in `ox/agents/orchestrator.py` (`AGENT_CLASS_MAP` +
+`globals()`, invisible to static analysis) and `tests/test_boot_drill.py`
+now imports `install_fake_ccxt` from its canonical home `tests/support.py`.
+
+**Correctness bugs found and fixed:**
+- `run.py` smoketest called the removed `Agent._bracket_from_supporters`
+  after brackets moved to `ox/decision.py` — the CI smoketest job was red.
+  Now calls the module function; smoketest passes end-to-end.
+- `RiskMonitor.check_limits` populated a dead local `alerts` and returned
+  `self.alerts`, so repeated calls returned ever-growing stale alert lists.
+  Now builds and returns the fresh local list.
+- `FactorRiskModel.estimate_covariance` computed `returns_clean` but fit
+  LedoitWolf/OAS on the raw frame (NaN would crash). Fits now use the
+  cleaned frame.
+- `RequestTracer.trace_request` computed `trace_id` (request_id or
+  contextvar) and dropped it; `TraceContext` now threads `trace_id` into
+  `start_span`, so an explicit request id actually lands on the span.
+- Dead computed values removed where they masked intent: `fit_factor_model`
+  redundant walrus if/else (both branches identical), duplicated `loadings`
+  and `factor_names`, ArrivalPrice's unused `sigma/eta/lam` (the code now
+  uses the `kappa` it computed instead of repeating the inline expression
+  three times), Iceberg's ignored `display` variable, `bos_choch`'s dead
+  `last_high/last_low`, `bayesian_optimization`'s dead `best_y`, and ~25
+  other unused locals across agents/indicators/risk modules.
+
+**CI widened:** `.github/workflows/ci.yml` lint job now enforces the full
+pyflakes set (`--select F`) instead of only F821/F601/F811, so dead code
+cannot silently re-accumulate.
+
+**Verification:** `ruff check ox/ tests/ run.py dashboard.py dashboard_data.py
+app_pages/ --select F` → 0 findings; `py_compile` clean on every touched
+file; `python -m pytest tests/ -q` → 215 passed, 10 subtests (matches
+baseline); `python run.py smoketest` → PASS; all four config YAMLs load
+(promax via its orchestrator schema, which legitimately has no top-level
+`symbols` list).
+
+---
+
 Verification method for everything below: full independent read of all 27
 files (not a diff-only pass), a custom AST-based lint sweep (ruff/pyflakes
 were unavailable offline), `py_compile` on every file, and the real

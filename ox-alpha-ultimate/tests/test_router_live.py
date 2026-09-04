@@ -26,18 +26,15 @@ touches it, proving NSE-side routing is untouched.
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 
-from ox.agents.base import AgentType, Position, SharedDataBus, Signal
+from ox.agents.base import AgentType, SharedDataBus
 from ox.agents.capital_allocator import CapitalAllocator
 from ox.agents.orchestrator import DataPump, ExecutionRouter
 from ox.brokers import OrderError
-from ox.crypto import CryptoMicroBroker
 from support import (
     ScriptedCcxt,
-    install_fake_ccxt,
     live_env,
     make_live_broker,
     MustNotTouch,

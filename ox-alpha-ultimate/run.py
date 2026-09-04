@@ -72,6 +72,7 @@ def run_smoketest() -> None:
     from ox.brokers import DhanDepthFeed
     from ox.brain import Backtester
     from ox.core import DB, LOG
+    from ox.decision import bracket_from_supporters
     from ox.core import IST, iso
     from ox.features import _swings
     from ox.orderflow import DhanDepthParser, DepthParseError, OrderFlowEngine, OrderFlowReplayValidator
@@ -239,7 +240,7 @@ def run_smoketest() -> None:
         # Autonomous BUY -> broker-managed bracket -> autonomous SELL at target.
         agent.broker.set_px("TCS", 1100.0)
         supporter = [(agent.strategies[0][0], agent.strategies[0][2], 1.0)]
-        stop, target, bracket = agent._bracket_from_supporters(agent.frame("TCS"), 1100.0, supporter)
+        stop, target, bracket = bracket_from_supporters(agent.frame("TCS"), 1100.0, supporter)
         assert bracket["sl_atr"] == agent.strategies[0][2]["sl_atr"] and bracket["tp_atr"] == agent.strategies[0][2]["tp_atr"] and stop < 1100.0 < target, "live bracket diverged from approved strategy parameters"
         agent._act("TCS", 1100.0, agent.frame("TCS"), votes=1, supporters=supporter)
         first = agent.oms.positions["TCS"]

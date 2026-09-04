@@ -5,8 +5,8 @@ import time
 import yaml
 from pathlib import Path
 from typing import Dict, Any, Callable, List, Optional
-from dataclasses import dataclass, field
-from .core import LOG, Cfg, ConfigError
+from dataclasses import dataclass
+from .core import LOG, Cfg
 
 
 @dataclass
@@ -87,7 +87,6 @@ class ConfigWatcher:
             
             if changes:
                 # Update Cfg instance
-                old_d = self.cfg.d.copy()
                 self.cfg.d = raw
                 self.cfg._validate()  # Re-validate
                 

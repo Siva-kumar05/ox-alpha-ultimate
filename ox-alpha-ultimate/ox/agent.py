@@ -19,7 +19,7 @@ from .brokers import BrokerError, MarketDataError, OrderError, RateLimitError, m
 from .compliance import Compliance
 from .core import Cfg, DB, LOG, hhmm, iso, now, setup_log
 from .decision import adjust_votes_by_regime, bracket_from_supporters, clamp_quantity, quorum_verdict
-from .features import REG, self_test
+from .features import self_test
 from .ml_pipeline import EnsembleMetaLearner, OnlineLearner
 from .regime import RegimeDetector, MarketRegime
 from .mtf import MultiTimeframeAnalyzer
@@ -32,20 +32,30 @@ from .orderflow import OrderFlowReplayValidator
 from .risk import Metrics, RiskManager
 from . import indicators as _indicators
 from .cognition import CognitiveLayer
-from .graceful_shutdown import GracefulShutdownManager, create_shutdown_manager
-from .health_metrics import HealthChecker, MetricsExporter, HealthCheckServer
-from .failover import FailoverBrokerManager, create_failover_manager
+from .graceful_shutdown import GracefulShutdownManager
+from .health_metrics import HealthChecker
+from .failover import create_failover_manager
 from .database_backup import DatabaseBackupManager
-from .secret_rotation import SecretManager, create_default_secret_manager
-from .config_reload import ConfigWatcher, HotReloadManager
+from .secret_rotation import create_default_secret_manager
+from .config_reload import ConfigWatcher
 from .compliance_reporting import ComplianceReporter
-from .event_calendar import EventCalendar, EconomicCalendar, ExpiryCalendar
+from .event_calendar import EventCalendar
 from .cost_aware_selection import CostAwareSelector, ParameterDriftDetector, LivePerformanceMonitor
 from .post_trade_analysis import PostTradeAnalyzer, AlphaDecayMonitor
 from .microstructure_signals import MicrostructureAnalyzer
 from .rebalancing import PortfolioRebalancer, PortfolioHedger
 from .stop_manager import StopManager
 from .leverage_engine import LeverageEngine
+
+
+# A single malformed row from a venue snapshot is noise: it is skipped and
+# logged so one bad candle cannot halt the whole agent at boot (the RELIANCE
+# halt).  The gate still fails closed when the corruption is systemic — many
+# rows AND a large share of the batch unusable means the series itself is
+# suspect, and trading on it would be worse than not trading.  The absolute
+# floor keeps a stray bad row in a short batch from counting as systemic.
+MAX_BAD_CANDLE_FRACTION = 0.25
+MIN_REJECTED_FOR_SYSTEMIC = 5
 
 
 class Agent:
@@ -197,22 +207,35 @@ class Agent:
         return Path(self.cfg.root) / "KILL.flag"
 
     def refresh_history(self, sym: str) -> None:
-        rows = self.broker.hist(sym, self.cfg["timeframe_sec"] // 60, self.cfg["history_days"])
+        rows = list(self.broker.hist(sym, self.cfg["timeframe_sec"] // 60, self.cfg["history_days"]))
         records = []
+        rejected = 0
         for timestamp, opening, high, low, close, volume in rows:
             try:
                 candle_timestamp = int(timestamp)
                 values = tuple(float(value) for value in (opening, high, low, close))
                 candle_volume = int(volume)
             except (TypeError, ValueError, OverflowError) as exc:
-                raise MarketDataError(f"Non-numeric historical candle from broker for {sym}") from exc
+                rejected += 1
+                LOG.warning("Skipping non-numeric historical candle from broker for %s (%s)",
+                            sym, exc.__class__.__name__)
+                continue
             if candle_timestamp <= 0 or not all(math.isfinite(value) and value > 0 for value in values) or candle_volume < 0:
-                raise MarketDataError(f"Invalid historical candle from broker for {sym}")
+                rejected += 1
+                LOG.warning("Skipping invalid historical candle from broker for %s (ts=%s)", sym, candle_timestamp)
+                continue
             if values[1] < max(values[0], values[3], values[2]) or values[2] > min(values[0], values[3], values[1]):
-                raise MarketDataError(f"Inconsistent historical OHLC from broker for {sym}")
+                rejected += 1
+                LOG.warning("Skipping inconsistent historical OHLC from broker for %s (ts=%s)", sym, candle_timestamp)
+                continue
             records.append((sym, candle_timestamp, *values, candle_volume))
         if not records:
-            raise MarketDataError(f"Broker returned no historical candles for {sym}")
+            raise MarketDataError(f"Broker returned no usable historical candles for {sym}")
+        if rows and rejected >= MIN_REJECTED_FOR_SYSTEMIC and rejected / len(rows) > MAX_BAD_CANDLE_FRACTION:
+            raise MarketDataError(
+                f"Broker returned systematically malformed historical candles for {sym} "
+                f"({rejected}/{len(rows)} rejected)"
+            )
         self.db.many("INSERT OR REPLACE INTO candles VALUES(?,?,?,?,?,?,?)", records)
 
     def ingest_quote(self, sym: str, price: float) -> None:

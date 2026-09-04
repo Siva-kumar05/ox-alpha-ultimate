@@ -252,7 +252,6 @@ def stat_arb_basket(df, p):
 def triple_barrier_mr(df, p):
     o, h, l, c, v = _arrays(df)
     z = I.zscore(c, int(p.get("n", 30)))
-    a = I.atr(h, l, c, 14)
     with np.errstate(invalid="ignore"):
         ok = z < -2.0
     return {"signal": _signal_from(ok)}
@@ -340,7 +339,7 @@ def orb(df, p):
     n = int(p.get("or_bars", 15))
     if len(c) <= n:
         return {"signal": np.zeros(len(c))}
-    orh, orl = float(np.nanmax(h[:n])), float(np.nanmin(l[:n]))
+    orh = float(np.nanmax(h[:n]))
     signal = np.zeros(len(c))
     signal[n:] = np.where(c[n:] > orh, 1, 0)
     return {"signal": signal}

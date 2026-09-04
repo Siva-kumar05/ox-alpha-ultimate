@@ -11,7 +11,6 @@ Uses L2 book imbalance + CVD + microprice edge on 1s cadence.
 Fail-closed: any stale book, wide spread, or thin notional blocks entry.
 """
 from __future__ import annotations
-import time
 from dataclasses import dataclass
 
 @dataclass

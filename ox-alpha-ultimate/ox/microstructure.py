@@ -9,7 +9,7 @@ Inputs are either bar arrays (o/h/l/c/v) for estimated analytics or explicit
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -84,14 +84,14 @@ def stacked_imbalances(fp: Footprint, threshold: float = 3.0, run: int = 3) -> l
     """3+ consecutive imbalanced levels -> support/resistance zone."""
     flags = fp.imbalance_by_level(threshold)
     zones = []
-    count, side, start = 0, 0, 0.0
+    count, side = 0, 0
     for level, flag in zip(fp.levels, flags):
         if flag == side and flag != 0:
             count += 1
             if count >= run:
                 zones.append(("support" if side > 0 else "resistance", float(level)))
         else:
-            side, count, start = int(flag), 1 if flag != 0 else 0, float(level)
+            side, count = int(flag), 1 if flag != 0 else 0
     return zones
 
 
@@ -581,7 +581,6 @@ def bos_choch(h, l, k: int = 3) -> tuple[np.ndarray, np.ndarray]:
     n = len(h)
     bos = np.zeros(n)
     choch = np.zeros(n)
-    last_high = last_low = np.nan
     direction = 0
     for i in range(k, n):
         ph = np.max(h[i - k:i])
@@ -592,14 +591,12 @@ def bos_choch(h, l, k: int = 3) -> tuple[np.ndarray, np.ndarray]:
             else:
                 bos[i] = 1
             direction = 1
-            last_high = h[i]
         if l[i] < pl:
             if direction > 0:
                 choch[i] = -1
             else:
                 bos[i] = -1
             direction = -1
-            last_low = l[i]
     return bos, choch
 
 

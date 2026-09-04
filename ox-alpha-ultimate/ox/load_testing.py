@@ -4,7 +4,7 @@ import threading
 import time
 import statistics
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .core import LOG, iso
 

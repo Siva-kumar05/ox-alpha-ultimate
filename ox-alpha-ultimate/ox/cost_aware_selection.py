@@ -1,6 +1,6 @@
 """Cost-Aware Strategy Selection and Adaptive Parameter Drift Detection."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 import numpy as np
@@ -252,7 +252,6 @@ class ParameterDriftDetector:
             if len(values) < 20:  # Need minimum history
                 continue
             
-            timestamps = [v[0] for v in values]
             param_values = np.array([v[1] for v in values])
             
             # Skip if constant

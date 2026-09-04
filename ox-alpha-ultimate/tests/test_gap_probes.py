@@ -17,7 +17,6 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import yaml
 
@@ -25,7 +24,7 @@ from ox.agent import Agent
 from ox.brokers import AuthenticationError, ChoiceBroker, make_broker
 from ox.core import Cfg, ConfigError
 from ox.oms import OMS, OrderError
-from ox.risk import Metrics, RiskManager
+from ox.risk import RiskManager
 from ox.scalping import ScalpingEngine
 from ox.crypto import CryptoMicroBroker
 from ox.advanced_risk import FactorRiskModel

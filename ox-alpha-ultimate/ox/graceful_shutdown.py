@@ -6,9 +6,9 @@ import threading
 import time
 import atexit
 from typing import Callable, List, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from .core import LOG, iso
+from .core import LOG
 
 
 class ShutdownPhase(Enum):
@@ -156,8 +156,8 @@ class GracefulShutdownManager:
                 start = time.time()
                 
                 # Run with timeout
-                result = self._run_with_timeout(hook)
-                
+                self._run_with_timeout(hook)
+
                 elapsed = time.time() - start
                 LOG.info(f"Hook {hook.name} completed in {elapsed:.1f}s")
                 

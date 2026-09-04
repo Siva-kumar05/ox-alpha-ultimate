@@ -112,7 +112,7 @@ class Options0DTEAgent(BaseAgent):
         price = float(data.get("price", 0.0))
         if price <= 0:
             return []
-        anchor = self._day_stats(symbol, price)
+        self._day_stats(symbol, price)  # maintain day anchor high/low
         buffer = self.price_buffers[symbol]
         buffer.append(price)
         if len(buffer) < self.momentum_window + 2 or symbol in self.positions:

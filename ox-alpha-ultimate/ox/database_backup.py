@@ -5,7 +5,6 @@ import threading
 import time
 import shutil
 import gzip
-import os
 from pathlib import Path
 from typing import Optional, List, Dict
 from dataclasses import dataclass

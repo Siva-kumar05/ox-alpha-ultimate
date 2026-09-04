@@ -45,7 +45,8 @@ import pytest
 from ox.agents.orchestrator import AgentOrchestrator, DataPump
 from ox.brokers import AuthenticationError, DhanBroker, MarketDataError, make_broker
 from ox.core import Cfg, ConfigError, DB
-from test_crypto_live import ScriptedCcxt, install_fake_ccxt, live_env, make_live_broker
+from support import install_fake_ccxt
+from test_crypto_live import ScriptedCcxt, live_env, make_live_broker
 from test_run_loop_resilience import _candle_payload, _FakeSession
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

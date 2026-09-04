@@ -45,18 +45,20 @@ from .base import (
     Position,
 )
 from .capital_allocator import CapitalAllocator
-from .crypto_funding import CryptoFundingArbAgent
-from .crypto_meme_swing import CryptoMemeSwingAgent
-from .crypto_perp import CryptoPerpAgent
+# Agent classes are resolved by name via AGENT_CLASS_MAP + globals() in
+# create_agent; the imports exist to register the names, not for direct use.
+from .crypto_funding import CryptoFundingArbAgent  # noqa: F401 - dynamic lookup
+from .crypto_meme_swing import CryptoMemeSwingAgent  # noqa: F401 - dynamic lookup
+from .crypto_perp import CryptoPerpAgent  # noqa: F401 - dynamic lookup
 from .debate import DebatePanel
-from .equity_growth import EquityGrowthAgent
-from .equity_momentum import EquityMomentumAgent
-from .intraday_scalper import IntradayScalperAgent
-from .market_maker import MarketMakerAgent
-from .news_intel import NewsIntelligenceAgent
-from .options_0dte import Options0DTEAgent
+from .equity_growth import EquityGrowthAgent  # noqa: F401 - dynamic lookup
+from .equity_momentum import EquityMomentumAgent  # noqa: F401 - dynamic lookup
+from .intraday_scalper import IntradayScalperAgent  # noqa: F401 - dynamic lookup
+from .market_maker import MarketMakerAgent  # noqa: F401 - dynamic lookup
+from .news_intel import NewsIntelligenceAgent  # noqa: F401 - dynamic lookup
+from .options_0dte import Options0DTEAgent  # noqa: F401 - dynamic lookup
 from .risk_coordinator import RiskCoordinator
-from .social_monitor import SocialMonitorAgent
+from .social_monitor import SocialMonitorAgent  # noqa: F401 - dynamic lookup
 
 LOG = logging.getLogger("promax.orchestrator")
 

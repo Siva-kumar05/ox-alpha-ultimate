@@ -1,13 +1,12 @@
 """Earnings/Event Avoidance Calendar."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 from enum import Enum
-from datetime import datetime, timedelta, date
+from datetime import timedelta, date
 import json
-import requests
-from .core import iso, LOG
+from .core import iso
 
 
 class EventType(Enum):
@@ -397,7 +396,7 @@ class ExpiryCalendar:
             last_day = 31
             while True:
                 try:
-                    test_date = date(year, month, last_day)
+                    date(year, month, last_day)
                     break
                 except ValueError:
                     last_day -= 1

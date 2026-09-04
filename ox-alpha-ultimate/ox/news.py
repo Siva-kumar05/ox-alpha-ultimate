@@ -1,7 +1,7 @@
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from .core import LOG, iso, now
 from .ssrf import SafeURLViolation, safe_fetch

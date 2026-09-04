@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List
 
 from ..core import iso
@@ -123,7 +123,6 @@ class NewsIntelligenceAgent(BaseAgent):
         db = self._db()
         if db is None:
             return
-        cutoff = datetime.now() - timedelta(minutes=self.lookback_minutes)
         for sym in self.symbols:
             score, sentiment = self.engine.get_optimism_score(db, sym)
             self._symbol_scores.setdefault(sym, []).append(score)

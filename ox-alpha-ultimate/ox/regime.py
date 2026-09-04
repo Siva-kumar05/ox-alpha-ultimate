@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-from .core import LOG, iso
+from dataclasses import dataclass
+from typing import Dict
+from .core import iso
 from .indicators import ind
 
 class MarketRegime(Enum):
@@ -104,7 +104,6 @@ class RegimeDetector:
         h = df["h"].to_numpy(dtype=float)
         l = df["l"].to_numpy(dtype=float)
         c = df["c"].to_numpy(dtype=float)
-        v = df["v"].to_numpy(dtype=float)
 
         # Parkinson volatility
         log_hl = np.log(np.maximum(h, 1e-9) / np.maximum(l, 1e-9))

@@ -207,7 +207,6 @@ class CryptoMicroBroker:
             fee = float(qty) * price * self.fee_bps
             slip = price * self.slip_bps
             fill = price * (1 + (slip / price) if side == "BUY" else -(slip / price))
-            cost = float(qty) * fill + fee if side == "BUY" else -float(qty) * fill + fee
             return {"order_id": f"CR{int(time.time()*1000)}", "price": fill, "qty": float(qty), "fee": fee, "side": side}
 
         market = self._market_type(sym)

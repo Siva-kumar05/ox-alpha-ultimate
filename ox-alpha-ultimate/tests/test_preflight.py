@@ -6,7 +6,6 @@ fake git dict, so none of these tests ever reach the internet, read a real
 """
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path

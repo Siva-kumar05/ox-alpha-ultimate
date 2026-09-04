@@ -2,9 +2,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 import numpy as np
-import pandas as pd
 from .indicators import ind
 from .core import iso
 

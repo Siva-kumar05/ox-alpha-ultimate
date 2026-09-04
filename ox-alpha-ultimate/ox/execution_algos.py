@@ -14,20 +14,17 @@ Features:
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass
+from typing import List
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
 import time
 
 try:
-    from scipy.optimize import minimize
+    from scipy.optimize import minimize  # noqa: F401 - availability probe
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
 
-from .core import LOG, iso
 
 
 @dataclass
@@ -81,7 +78,6 @@ class TWAPAlgorithm(ExecutionAlgorithm):
         self.randomize = config.get("randomize", False)
         
     def generate_slices(self, plan: ExecutionPlan) -> List[ExecutionSlice]:
-        total_qty = plan.total_quantity
         n_slices = min(self.n_slices, plan.total_quantity // 100 + 1)
         
         qty_per_slice = plan.total_quantity // n_slices
@@ -94,7 +90,6 @@ class TWAPAlgorithm(ExecutionAlgorithm):
         for i in range(n_slices):
             qty = qty_per_slice + (1 if i < remainder else 0)
             start = plan.start_time + i * slice_duration
-            end = plan.start_time + (i + 1) * slice_duration
             
             # Add small randomization to avoid detection
             if self.config.get("randomize", False):
@@ -149,7 +144,6 @@ class VWAPAlgorithm(ExecutionAlgorithm):
         slices = []
         for i in range(n_slices):
             start = plan.start_time + i * slice_duration
-            end = plan.start_time + (i + 1) * slice_duration
             
             # Allocate quantity proportional to volume profile
             slice_vol_pct = vol_profile[i] if i < len(vol_profile) else 1.0 / n_slices
@@ -196,10 +190,6 @@ class ArrivalPriceAlgorithm(ExecutionAlgorithm):
         """
         
         # Almgren-Chriss parameters
-        sigma = 0.01  # daily volatility
-        eta = 0.0001  # temporary impact
-        lam = self.risk_aversion  # risk aversion
-        
         kappa = np.sqrt(self.risk_aversion * 0.01**2 / 0.0001)
         T = plan.end_time - plan.start_time
         n_slices = min(20, plan.total_quantity // 100 + 1)
@@ -217,11 +207,10 @@ class ArrivalPriceAlgorithm(ExecutionAlgorithm):
                 
             # Optimal trajectory
             if remaining_time > 0:
-                kappa_T = np.sqrt(self.risk_aversion * 0.01**2 / 0.0001) * T
-                kappa_t = np.sqrt(self.risk_aversion * 0.01**2 / 0.0001) * t
-                
+                kappa_T = kappa * T
+
                 if np.sinh(kappa_T) > 0:
-                    remaining_qty = total_qty * np.sinh(np.sqrt(self.risk_aversion * 0.01**2 / 0.0001) * remaining_time) / np.sinh(kappa_T)
+                    remaining_qty = total_qty * np.sinh(kappa * remaining_time) / np.sinh(kappa_T)
                 else:
                     remaining_qty = total_qty * (remaining_time / T)
             else:
@@ -268,9 +257,7 @@ class POVAlgorithm(ExecutionAlgorithm):
         """Generate slices based on volume participation."""
         
         # Simplified: create slices based on expected volume
-        n_slices = 20
-        total_qty = plan.total_quantity
-        slice_qty = max(1, int(total_qty / 20))
+        slice_qty = max(1, int(plan.total_quantity / 20))
         
         slices = []
         for i in range(20):
@@ -304,13 +291,12 @@ class IcebergAlgorithm(ExecutionAlgorithm):
                        display_qty: int = None) -> List[ExecutionSlice]:
         """Generate iceberg slices."""
         display = display_qty or self.display_qty
-        n_slices = max(1, plan.total_quantity // (display_qty or 100))
-        
+
         slices = []
         remaining = plan.total_quantity
-        
+
         while remaining > 0:
-            qty = min(display_qty or 100, remaining)
+            qty = min(display, remaining)
             slices.append(ExecutionSlice(
                 timestamp=int(time.time()),
                 quantity=qty,
@@ -343,9 +329,7 @@ class SmartRouter:
     def select_algorithm(self, order: dict) -> ExecutionAlgorithm:
         """Select best algorithm based on order characteristics."""
         urgency = order.get("urgency", "normal")
-        size = order.get("quantity", 0)
-        adv = order.get("adv", 1_000_000)
-        
+
         participation = order.get("quantity", 0) / max(order.get("adv", 1_000_000), 1)
         
         if participation > 0.1:

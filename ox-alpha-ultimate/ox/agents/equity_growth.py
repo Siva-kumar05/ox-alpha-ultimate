@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from .base import AgentConfig, BaseAgent, Position, Signal
+from .base import AgentConfig, BaseAgent, Signal
 from .capital_allocator import CapitalAllocator
 from .risk_coordinator import RiskCoordinator
 

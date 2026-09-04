@@ -373,7 +373,6 @@ def evaluate(root: Path, secrets_file: Path, http: HTTP,
 
         # -- keys (never read from chat; reported as setup-live.sh prompts) -#
         required = _VENUE_KEYS[venue]
-        present = [key for key in required if env.get(key, "").strip()]
         missing = [key for key in required if not env.get(key, "").strip()]
         if venue in ("binance", "dhan"):
             # promax always logs in the Dhan equity side; legacy Dhan is self-evident.

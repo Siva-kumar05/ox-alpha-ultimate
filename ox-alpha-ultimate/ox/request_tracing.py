@@ -6,8 +6,6 @@ import uuid
 from contextvars import ContextVar
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from collections import defaultdict
-from .core import LOG, iso
 
 
 # Context variables for trace propagation
@@ -158,14 +156,15 @@ class Tracer:
 class TraceContext:
     """Context manager for automatic span management."""
     
-    def __init__(self, tracer: Tracer, operation: str, **tags):
+    def __init__(self, tracer: Tracer, operation: str, trace_id: Optional[str] = None, **tags):
         self.tracer = tracer
         self.operation = operation
+        self.trace_id = trace_id
         self.tags = tags
         self.span: Optional[Span] = None
     
     def __enter__(self) -> Span:
-        self.span = self.tracer.start_span(self.operation, tags=self.tags)
+        self.span = self.tracer.start_span(self.operation, trace_id=self.trace_id, tags=self.tags)
         return self.span
     
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -213,10 +212,10 @@ class RequestTracer:
     
     def trace_request(self, method: str, path: str, request_id: Optional[str] = None) -> TraceContext:
         """Trace an HTTP request."""
-        trace_id = request_id or trace_id_var.get()
         return TraceContext(
             self.tracer,
             f"HTTP {method} {path}",
+            trace_id=request_id or trace_id_var.get(),
             http_method=method,
             http_path=path,
             http_request_id=request_id
@@ -238,7 +237,7 @@ class RequestTracer:
         query_tag = query[:100] if len(query) > 100 else query
         return TraceContext(
             self.tracer,
-            f"DB Query",
+            "DB Query",
             db_query=query_tag,
             db_table=table
         )

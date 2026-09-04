@@ -1,8 +1,6 @@
 """Dynamic leverage engine - volatility-targeted, confidence-scaled leverage for small capital."""
 from __future__ import annotations
-import math
 from dataclasses import dataclass
-from typing import Dict, Optional
 import numpy as np
 
 @dataclass

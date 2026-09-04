@@ -18,12 +18,11 @@ import logging
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 import numpy as np
-import pandas as pd
 
-from .base import SharedDataBus, Signal, Position, AgentState
+from .base import SharedDataBus, Signal, Position
 
 LOG = logging.getLogger("promax.risk")
 
@@ -186,7 +185,7 @@ class RiskCoordinator:
         # Check total leverage
         total_leverage = self._calculate_total_leverage()
         if total_leverage + signal.leverage > self.limits.max_total_leverage:
-            LOG.warning(f"Portfolio max leverage would be exceeded")
+            LOG.warning("Portfolio max leverage would be exceeded")
             return False
 
         # Check correlation exposure
@@ -201,7 +200,7 @@ class RiskCoordinator:
         position_value = signal.price * signal.quantity * signal.leverage
         portfolio_value = self.current_equity or 100000
         if position_value / portfolio_value > self.limits.max_single_position_pct:
-            LOG.warning(f"Position size exceeds limit")
+            LOG.warning("Position size exceeds limit")
             return False
 
         return True

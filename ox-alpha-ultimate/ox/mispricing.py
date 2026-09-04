@@ -2,7 +2,6 @@
 Threshold 85%+ confidence: only high-confidence fair values generate flags.
 """
 from __future__ import annotations
-import math
 
 class MispricingDetector:
     def __init__(self, cfg):

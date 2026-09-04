@@ -3,7 +3,6 @@ Ranks symbols by volatility, volume, momentum, and order-flow score.
 Focuses on small/mid-cap stocks for low-capital efficiency.
 """
 from __future__ import annotations
-import math
 import numpy as np
 import pandas as pd
 

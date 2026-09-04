@@ -12,7 +12,6 @@ file paths that don't exist.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field

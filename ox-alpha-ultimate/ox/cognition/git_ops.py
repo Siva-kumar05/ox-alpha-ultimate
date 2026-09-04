@@ -9,8 +9,6 @@ history for patterns — rather than shelling out to `git status` every time.
 from __future__ import annotations
 
 import difflib
-import json
-import os
 import re
 import subprocess
 from collections import Counter, defaultdict
@@ -383,7 +381,7 @@ class DatabaseClient:
             self._conn = psycopg2.connect(self.dsn)
         elif self.driver_name == "pymysql":
             try:
-                import pymysql  # type: ignore
+                import pymysql  # type: ignore  # noqa: F401 - availability probe
             except ImportError as exc:
                 raise RuntimeError("pymysql not installed") from exc
             # dsn parsed as URL-style; fallback to env for simplicity

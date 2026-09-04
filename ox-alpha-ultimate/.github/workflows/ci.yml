@@ -16,8 +16,8 @@ jobs:
           python-version: "3.12"
       - name: Install ruff
         run: pip install ruff==0.16.4
-      - name: Ruff F821/F601/F811 over ox/ and tests/
-        run: ruff check ox/ tests/ --select F821,F601,F811
+      - name: Ruff full pyflakes (F) over ox/ and tests/
+        run: ruff check ox/ tests/ --select F
 
   test:
     name: Full offline test suite

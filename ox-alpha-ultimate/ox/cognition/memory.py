@@ -16,9 +16,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
-from .vectors import DIMENSIONS, cosine, embed, pack, unpack
+from .vectors import cosine, embed, pack, unpack
 
 SCHEMA = {
     "episodic": (

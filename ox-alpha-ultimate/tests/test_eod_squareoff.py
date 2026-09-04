@@ -42,7 +42,6 @@ from ox.core import IST
 from test_run_loop_resilience import (
     RunLoopResilienceTests,
     _FakeSession,
-    _make_config,
     _position_payload,
 )
 

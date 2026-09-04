@@ -6,8 +6,6 @@
 - Early entry: if signal fires but order-flow streak < 2, defer one bar.
 """
 from __future__ import annotations
-import math
-import numpy as np
 from .features import REG
 
 class SmartExit:

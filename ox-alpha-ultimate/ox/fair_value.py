@@ -3,7 +3,6 @@ Combines VWAP, anchored VWAP, volume profile POC, Kalman trend, and order-flow
 microprice to estimate a symbol's fair value. Used for mispricing flags.
 """
 from __future__ import annotations
-import math
 import numpy as np
 import pandas as pd
 from .features import REG
@@ -16,7 +15,7 @@ class FairValueEngine:
         if df is None or len(df) < 20:
             return {"fair_value": 0.0, "confidence": 0.0, "components": {}}
         h = df["h"].to_numpy(float); l = df["l"].to_numpy(float)
-        c = df["c"].to_numpy(float); v = df["v"].to_numpy(float); o = df["o"].to_numpy(float)
+        c = df["c"].to_numpy(float); v = df["v"].to_numpy(float)
         # Session VWAP
         try:
             from .brain import _session_vwap

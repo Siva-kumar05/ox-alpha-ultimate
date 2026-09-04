@@ -7,15 +7,13 @@ Pure arbitrage: long spot + short perp when funding > threshold.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 
-from .base import BaseAgent, AgentConfig, RiskParams, Signal, Position, AgentType
+from .base import BaseAgent, AgentConfig, Signal
 from .risk_coordinator import RiskCoordinator
 from .capital_allocator import CapitalAllocator
 

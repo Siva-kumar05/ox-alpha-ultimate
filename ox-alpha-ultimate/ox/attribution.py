@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 import numpy as np
-from .core import LOG, iso
+from .core import iso
 
 
 class TradeAttribution:

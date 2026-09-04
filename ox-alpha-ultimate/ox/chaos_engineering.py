@@ -4,7 +4,7 @@ import random
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable
 from enum import Enum
 from .core import LOG, iso
 

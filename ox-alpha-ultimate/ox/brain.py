@@ -347,7 +347,6 @@ class FailureAnalyzer:
             i = min(max(int(entry_i), 0), len(close) - 1)
             return bool(volatility[i] > median_volatility), bool(trend[i] < 0)
 
-        winners = [d for d in trade_details if float(d.get("ret", 0.0)) > 0]
         losers = [d for d in trade_details if float(d.get("ret", 0.0)) <= 0]
         if trade_details:
             flags = [regime(d.get("entry_i", 0)) for d in trade_details]

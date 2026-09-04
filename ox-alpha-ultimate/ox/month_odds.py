@@ -13,7 +13,7 @@ just the average.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 
@@ -96,7 +96,7 @@ def format_row(label: str, s: Dict[str, float]) -> str:
 
 
 def run(capital: float = 5000.0) -> int:
-    from .validate_online import STRATEGIES, SYMBOLS, fetch_daily
+    from .validate_online import STRATEGIES, fetch_daily
 
     print(f"MONTH-ODDS on Rs.{capital:,.0f} — 100,000 simulated months (22 trading days), "
           "bootstrapped from REAL out-of-sample daily returns (purged CV, 12 bps costs)")

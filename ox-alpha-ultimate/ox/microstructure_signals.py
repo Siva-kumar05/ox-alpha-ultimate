@@ -1,11 +1,9 @@
 """Market Microstructure Signals: Tick data analysis, trade flow toxicity, adverse selection."""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Optional, Deque
+from dataclasses import dataclass
+from typing import Optional, Deque
 from collections import deque
 import numpy as np
-import pandas as pd
-from .core import iso
 
 
 @dataclass

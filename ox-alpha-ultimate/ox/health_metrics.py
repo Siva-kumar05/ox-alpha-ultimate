@@ -8,7 +8,7 @@ import threading
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from .core import LOG, iso
-from .metrics import MetricsCollector, CircuitBreaker
+from .metrics import MetricsCollector
 
 
 class HealthStatus(Enum):
@@ -230,7 +230,7 @@ class HealthChecker:
                 return HealthCheck(
                     name="data_freshness",
                     status=HealthStatus.UNHEALTHY,
-                    message=f"Majority of symbols have stale data",
+                    message="Majority of symbols have stale data",
                     latency_ms=0.0,
                     timestamp=iso()
                 )

@@ -11,27 +11,22 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
-from scipy import linalg
-from scipy.optimize import minimize
-from scipy.stats import norm, chi2
+from dataclasses import dataclass
 import warnings
 warnings.filterwarnings('ignore')
 
-from .core import LOG, iso
 
 try:
-    from sklearn.decomposition import PCA
-    from sklearn.covariance import LedoitWolf, OAS
-    from scipy.optimize import minimize
-    from scipy.linalg import pinv, sqrtm
+    from sklearn.decomposition import PCA  # noqa: F401 - availability probe
+    from sklearn.covariance import LedoitWolf, OAS  # noqa: F401 - availability probe
+    from scipy.optimize import minimize  # noqa: F401 - availability probe
+    from scipy.linalg import pinv, sqrtm  # noqa: F401 - availability probe
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
 
 try:
-    import cvxpy as cp
+    import cvxpy as cp  # noqa: F401 - availability probe
     CVXPY_AVAILABLE = True
 except ImportError:
     CVXPY_AVAILABLE = False
@@ -45,7 +40,6 @@ class FactorModel:
     factor_cov: np.ndarray
     specific_var: np.ndarray
     factor_returns: np.ndarray
-    factor_names: list[str]
 
 
 @dataclass
@@ -107,13 +101,7 @@ class FactorRiskModel:
             return {"error": "Need at least 2 assets"}
             
         returns_clean = returns.dropna(axis=1, how='all').fillna(0)
-        n_assets = len(returns_clean.columns)
-        
-        if n_factors := min(self.n_factors, len(returns.columns) - 1):
-            n_factors = min(self.n_factors, len(returns.columns) - 1)
-        else:
-            n_factors = min(self.n_factors, len(returns.columns) - 1)
-            
+
         # Standardize
         returns_scaled = (returns_clean - returns_clean.mean()) / (returns_clean.std() + 1e-8)
         
@@ -121,9 +109,6 @@ class FactorRiskModel:
         from sklearn.decomposition import PCA
         pca = PCA(n_components=min(self.n_factors, len(returns.columns) - 1))
         factors = pca.fit_transform(returns_scaled)
-        
-        # Factor loadings
-        loadings = pca.components_.T
         
         # Factor returns
         factor_returns = pd.DataFrame(
@@ -167,16 +152,16 @@ class FactorRiskModel:
         - "constant": Constant correlation
         - "factor": Factor model based
         """
-        from sklearn.covariance import LedoitWolf, OAS, EmpiricalCovariance
+        from sklearn.covariance import LedoitWolf, OAS
         
         returns_clean = returns.dropna(axis=1, how='all').fillna(0)
-        
+
         if method == "ledoit_wolf":
             lw = LedoitWolf()
-            return lw.fit(returns).covariance_
+            return lw.fit(returns_clean).covariance_
         elif method == "oas":
             oas = OAS()
-            return oas.fit(returns).covariance_
+            return oas.fit(returns_clean).covariance_
         elif method == "sample":
             return returns.cov().values
         elif method == "constant":
@@ -331,8 +316,6 @@ class FactorRiskModel:
         - Correlation breakdown (corr -> 1)
         - Liquidity crisis (bid-ask spread widening)
         """
-        results = {}
-        
         # Historical scenarios
         scenarios = scenarios or {
             "market_crash_20": {"equity_shock": -0.20, "vol_mult": 2.0, "corr_mult": 1.5},
@@ -365,7 +348,7 @@ class FactorRiskModel:
             es = -returns[returns <= -var].mean() if (returns <= -var).any() else var
         elif method == "parametric":
             from scipy.stats import norm
-            mu, sigma = returns.mean(), returns.std()
+            sigma = returns.std()
             var = -norm.ppf(alpha) * returns.std() - returns.mean()
             es = - (returns.mean() - sigma * norm.pdf(norm.ppf(alpha)) / alpha)
         elif method == "cornish_fisher":
@@ -396,6 +379,7 @@ class FactorRiskModel:
         expected = alpha * len(violations)
         
         # Kupiec test
+        from scipy.stats import chi2
         if n_violations > 0 and n_violations < len(violations):
             lr_uc = -2 * np.log(
                 (1 - alpha)**(n_total - n_violations) * alpha**n_violations /
@@ -438,8 +422,7 @@ class TransactionCostModel:
         """Estimate transaction costs using Almgren-Chriss model."""
         
         notional = quantity * price
-        participation = min(abs(quantity) * price / max(adv, 1), 0.25)
-        
+
         # Spread cost
         spread_cost = self.spread_bps / 10000 * notional
         
@@ -503,7 +486,7 @@ class RiskMonitor:
         # Position limits
         for symbol, pos in portfolio_state.get("positions", {}).items():
             if abs(pos.get("value", 0)) > self.config.get("risk", {}).get("max_position", 1e6):
-                self.alerts.append({
+                alerts.append({
                     "type": "position_limit",
                     "symbol": symbol,
                     "message": f"Position exceeds limit: {pos['value']}"
@@ -511,7 +494,7 @@ class RiskMonitor:
         
         # VaR limit
         if portfolio_state.get("var_95", 0) > portfolio_state.get("capital", 0) * 0.05:
-            self.alerts.append({
+            alerts.append({
                 "type": "var_limit",
                 "message": "Portfolio VaR exceeds 5% limit"
             })
@@ -519,12 +502,12 @@ class RiskMonitor:
         # Drawdown
         dd = portfolio_state.get("drawdown", 0)
         if dd > self.config.get("risk", {}).get("max_drawdown", 0.1):
-            self.alerts.append({
+            alerts.append({
                 "type": "drawdown",
                 "message": f"Drawdown {dd:.1%} exceeds limit"
             })
             
-        return self.alerts
+        return alerts
     
     def get_risk_report(self, portfolio_state: dict) -> dict:
         """Generate comprehensive risk report."""

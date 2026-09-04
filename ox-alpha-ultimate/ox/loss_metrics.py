@@ -3,9 +3,7 @@ Tracks realized/unrealized PnL, drawdown, VaR, Sortino, and loss streaks.
 Used by the self-training loop to minimize loss and maximize risk-adjusted returns.
 """
 from __future__ import annotations
-import math
 import numpy as np
-import pandas as pd
 from .core import now
 
 class LossTracker:

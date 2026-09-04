@@ -7,16 +7,14 @@ Uses funding rates, basis, order flow, and momentum.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List
 
 import numpy as np
-import pandas as pd
 
-from .base import BaseAgent, AgentConfig, RiskParams, Signal, Position, AgentType
+from .base import BaseAgent, AgentConfig, Signal
 from .risk_coordinator import RiskCoordinator
 from .capital_allocator import CapitalAllocator
 
@@ -294,13 +292,9 @@ class CryptoPerpAgent(BaseAgent):
         
         # Calculate momentum
         mom_20 = (prices[-1] / prices[-20] - 1) * 100
-        mom_50 = (prices[-1] / prices[-50] - 1) * 100
-        
+
         # RSI
         rsi = self._calc_rsi(np.array(state.mark_price_history[-50:]))
-        
-        # Volume/OI confirmation
-        oi_increasing = True  # Would check OI change
         
         # Long momentum
         if mom_20 > 3 and rsi < 70:
@@ -388,7 +382,6 @@ class CryptoPerpAgent(BaseAgent):
         
         # Would need liquidation data from exchange
         # Simplified: if OI dropping fast + price moving, hunt direction
-        oi_change = state.oi_change_24h
         price_change = 0
         
         if len(state.mark_price_history) > 2:
@@ -449,7 +442,6 @@ class CryptoPerpAgent(BaseAgent):
         if len(self.positions) >= self.config.risk_params.max_concurrent_positions:
             return False
         
-        capital = self.capital_allocator.get_allocation(self.agent_id)
         used = sum(p.quantity * p.current_price for p in self.positions.values())
         if used > self.capital_allocator.get_allocation(self.agent_id) * 0.8:
             return False
@@ -464,10 +456,6 @@ class CryptoPerpAgent(BaseAgent):
             state = self.states.get(symbol)
             if not state:
                 continue
-            
-            current_price = state.mark_price
-            entry_price = position.entry_price
-            leverage = position.leverage
             
             # Liquidation check
             liq_price = state.liquidation_price
