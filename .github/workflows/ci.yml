@@ -1,0 +1,58 @@
+# Root-level CI for the ox-alpha-ultimate project.
+#
+# The repository root contains the project under the `ox-alpha-ultimate/`
+# folder, so the project's own workflow (ox-alpha-ultimate/.github/workflows/)
+# is NOT auto-discovered by GitHub Actions — only <repo-root>/.github/workflows/
+# is scanned. This file is the discovered workflow; every job runs inside the
+# nested project via defaults.run.working-directory.
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+defaults:
+  run:
+    working-directory: ox-alpha-ultimate
+
+jobs:
+  lint:
+    name: Ruff full pyflakes (F) over ox/ and tests/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.16.4
+      - name: Ruff full pyflakes (F) over ox/ and tests/
+        run: ruff check ox/ tests/ --select F
+
+  test:
+    name: Full offline test suite (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        # Fully offline: paper broker, scripted HTTP transport, temp databases.
+        run: python -m pytest tests/ -q
+
+  smoketest:
+    name: Paper smoketest (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run paper smoketest
+        run: python run.py smoketest
