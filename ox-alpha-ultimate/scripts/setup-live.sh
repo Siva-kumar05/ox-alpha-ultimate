@@ -22,6 +22,12 @@ read -rsp "Dhan access token (hidden) [blank to skip]: " DHAN_TOKEN; echo
 read -rp "Dhan whitelisted instance public IP, e.g. 13.207.244.242 [blank to skip]: " DHAN_STATIC_IP
 read -rsp "Binance API key (hidden) [blank to skip]: " BINANCE_API_KEY; echo
 read -rsp "Binance API secret (hidden) [blank to skip]: " BINANCE_API_SECRET; echo
+read -rp "Choice India user ID (Shoonya login id) [blank to skip]: " CHOICE_USER_ID
+read -rsp "Choice India password (hidden) [blank to skip]: " CHOICE_PASSWORD; echo
+read -rsp "Choice India TOTP/TPIN (hidden) [blank to skip]: " CHOICE_TOTP; echo
+read -rp "Choice India vendor code (from broker) [blank to skip]: " CHOICE_VENDOR_CODE
+read -rsp "Choice India API key/secret (hidden) [blank to skip]: " CHOICE_API_KEY; echo
+read -rp "Choice India IMEI [blank = ox-alpha-ultimate]: " CHOICE_IMEI
 read -rsp "Audit key, >= 32 chars (hidden) [blank = auto-generate]: " OX_AUDIT_KEY; echo
 
 if [ -z "${OX_AUDIT_KEY:-}" ]; then
@@ -39,6 +45,12 @@ export DHAN_TOKEN='${DHAN_TOKEN:-}'
 export DHAN_STATIC_IP='${DHAN_STATIC_IP:-}'
 export BINANCE_API_KEY='${BINANCE_API_KEY:-}'
 export BINANCE_API_SECRET='${BINANCE_API_SECRET:-}'
+export CHOICE_USER_ID='${CHOICE_USER_ID:-}'
+export CHOICE_PASSWORD='${CHOICE_PASSWORD:-}'
+export CHOICE_TOTP='${CHOICE_TOTP:-}'
+export CHOICE_VENDOR_CODE='${CHOICE_VENDOR_CODE:-}'
+export CHOICE_API_KEY='${CHOICE_API_KEY:-}'
+export CHOICE_IMEI='${CHOICE_IMEI:-ox-alpha-ultimate}'
 EOF
 chmod 600 "$SECRETS"
 
@@ -52,10 +64,16 @@ if [ -n "${BINANCE_API_KEY:-}" ] && [ -n "${BINANCE_API_SECRET:-}" ]; then
 else
   echo "WARNING: Binance credentials incomplete - 'live.sh binance' will refuse to start."
 fi
+if [ -n "${CHOICE_USER_ID:-}" ] && [ -n "${CHOICE_PASSWORD:-}" ] && [ -n "${CHOICE_TOTP:-}" ] && [ -n "${CHOICE_VENDOR_CODE:-}" ] && [ -n "${CHOICE_API_KEY:-}" ]; then
+  echo "Choice India credentials: saved"
+else
+  echo "WARNING: Choice India credentials incomplete - 'live.sh choice' will refuse to start."
+fi
 
 echo
 echo "Next steps:"
 echo "  bash scripts/live.sh live-test   # Dhan connectivity + credential check (safe)"
 echo "  bash scripts/live.sh dhan        # NSE intraday agent, live Dhan"
+echo "  bash scripts/live.sh choice      # NSE intraday agent, live Choice India (Shoonya)"
 echo "  bash scripts/live.sh binance     # promax multi-agent: Dhan equity + Binance spot/perp"
 echo "  bash scripts/live.sh paper       # back to paper"

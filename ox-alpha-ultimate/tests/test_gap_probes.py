@@ -277,41 +277,34 @@ class DocumentedGapTests(unittest.TestCase):
 
 
 class ChoiceVenueProbeTests(unittest.TestCase):
-    """Choice India must fail closed, never silently fall through to paper.
-
-    The adapter is a documented scaffold (like groww/tradingview): credentials
-    are read from the environment so the setup flow can prompt for them, but
-    login and every order/data endpoint raise a clear error until a real
-    adapter is wired and verified.
+    """Choice India is a real adapter behind make_broker, but it must still
+    fail closed: without credentials nothing authenticates, and without a
+    session no data or order endpoint runs - never silently falling through
+    to paper or to a half-initialised adapter.
     """
 
     def test_make_broker_returns_the_choice_adapter(self):
         broker = make_broker({"platform": "choice"}, None)
         self.assertIsInstance(broker, ChoiceBroker)
 
-    def test_login_fails_closed_and_names_the_venue(self):
+    def test_login_fails_closed_and_names_missing_credentials(self):
         broker = ChoiceBroker({}, None)
-        with self.assertRaisesRegex(AuthenticationError, "Choice India adapter is not wired yet"):
+        with self.assertRaisesRegex(
+            AuthenticationError,
+            "CHOICE_USER_ID.*CHOICE_PASSWORD.*CHOICE_TOTP.*CHOICE_VENDOR_CODE.*CHOICE_API_KEY",
+        ):
             broker.login()
         self.assertFalse(broker.authenticated())
 
-    def test_login_with_missing_creds_names_them(self):
-        broker = ChoiceBroker({}, None)
-        with self.assertRaisesRegex(AuthenticationError, "CHOICE_USER_ID.*CHOICE_API_KEY"):
-            broker.login()
+    def test_data_and_order_endpoints_require_a_session(self):
+        from ox.brokers import OrderError
 
-    def test_data_and_order_endpoints_fail_closed(self):
-        from ox.brokers import MarketDataError, OrderError
-
-        broker = ChoiceBroker({}, None)
-        with self.assertRaisesRegex(MarketDataError, "not wired"):
+        broker = ChoiceBroker({"security_map": {"TCS": "NSE|2885|TCS-EQ"}}, None)
+        with self.assertRaisesRegex(AuthenticationError, "not authenticated"):
             broker.ltp("TCS")
-        with self.assertRaisesRegex(MarketDataError, "not wired"):
-            broker.hist("TCS", 1, 5)
-        with self.assertRaisesRegex(OrderError, "not wired"):
-            broker.place_super_order("TCS", "BUY", 1, 1.0, 1.0, "x")
-        with self.assertRaisesRegex(OrderError, "not wired"):
-            broker.positions()
+        broker = ChoiceBroker({}, None)
+        with self.assertRaisesRegex(OrderError, "No Choice security is configured"):
+            broker.place_super_order("TCS", "BUY", 1, 2.0, 1.0, "x")
 
 
 if __name__ == "__main__":

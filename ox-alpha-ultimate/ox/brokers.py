@@ -12,6 +12,7 @@ import random
 import threading
 import time
 import uuid
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, time as clock_time, timedelta
@@ -871,58 +872,291 @@ class GrowwBroker(BrokerBase):
     def hist(self,sym,tf_min=1,days=5): raise MarketDataError("Wire Groww hist endpoint")
 
 class ChoiceBroker(BrokerBase):
-    """Choice India (Finvasia) is a fail-closed scaffold, not a wired adapter.
+    """Choice India (Finvasia) live adapter over the Shoonya/Noren gateway.
 
-    Credentials are read from the environment (Shoonya-style names) so the
-    live setup script can prompt for them, but login and every trading/data
-    endpoint raise a clear error: this platform must never silently fall
-    through to paper or to a half-written adapter.
+    Transport and payload contract mirrored from the official Shoonya wrapper
+    (github.com/Shoonya-Dev/ShoonyaApi-py: api_helper.py, example_orders.py,
+    example_market.py) and its NorenRestApiPy base (NorenApi.py 0.0.22/0.0.30):
+    every request is a form POST of 'jData=<json>&jKey=<token>' to
+    https://api.shoonya.com/NorenWClientTP/<Route>; login (QuickAuth) SHA-256
+    hashes the password and the 'uid|apikey' app key and exchanges them for a
+    session token.  Unlike Dhan, Shoonya has no IP-whitelist concept, so
+    :meth:`whitelisted_ips` reports None and compliance skips that check.
+
+    Credentials come from the environment (CHOICE_USER_ID / CHOICE_PASSWORD /
+    CHOICE_TOTP / CHOICE_VENDOR_CODE / CHOICE_API_KEY / CHOICE_IMEI), each
+    overridable through cfg['platforms']['choice_*_env'].  security_map
+    entries must be 'EXCH|TOKEN|TRADINGSYMBOL' (e.g. 'NSE|2885|RELIANCE-EQ');
+    the token drives quotes/history and the tradingsymbol drives orders.
+
+    Order-book / position-book / TPSeries field names follow the documented
+    Noren protocol used by the official wrapper.  Every parse fails closed
+    with a BrokerError naming the symbol rather than fabricating a fill:
+    fill quantities come only from the venue's fillshares/avgprc fields.
     """
 
     name = "choice"
-    _NOT_WIRED = "Choice India adapter is not wired yet (research-only scaffold)"
+    BASE = "https://api.shoonya.com/NorenWClientTP/"
+    _TIME_INTERVALS = {1, 3, 5, 10, 15, 30, 60, 120, 240}
 
     def __init__(self, cfg, db):
         super().__init__(cfg, db)
         platforms = cfg.get("platforms", {}) if isinstance(cfg, dict) else {}
         self.user_id = os.getenv(platforms.get("choice_user_id_env", "CHOICE_USER_ID"), "").strip()
         self.password = os.getenv(platforms.get("choice_password_env", "CHOICE_PASSWORD"), "").strip()
-        self.totp_secret = os.getenv(platforms.get("choice_totp_env", "CHOICE_TOTP_SECRET"), "").strip()
-        self.api_key = os.getenv(platforms.get("choice_api_key_env", "CHOICE_API_KEY"), "").strip()
+        self.totp = os.getenv(platforms.get("choice_totp_env", "CHOICE_TOTP"), "").strip()
+        self.vendor_code = os.getenv(platforms.get("choice_vendor_code_env", "CHOICE_VENDOR_CODE"), "").strip()
+        self.api_secret = os.getenv(platforms.get("choice_api_key_env", "CHOICE_API_KEY"), "").strip()
+        self.imei = os.getenv(platforms.get("choice_imei_env", "CHOICE_IMEI"), "ox-alpha-ultimate").strip()
+        self.security_map = {str(key).upper(): str(value) for key, value in cfg.get("security_map", {}).items()}
+        self._token_to_symbol = {
+            parts[1]: sym for sym, entry in self.security_map.items()
+            if len((parts := str(entry).split("|"))) == 3 and parts[1].isdigit()
+        }
+        self.session = requests.Session()
+        self._username = None
+        self._account_id = None
+        execution_cfg = cfg.get("execution", {}) if isinstance(cfg, dict) else {}
+        if not isinstance(execution_cfg, dict):
+            execution_cfg = {}
+        self._timeout = (
+            float(execution_cfg.get("broker_connect_timeout_seconds", 3.05)),
+            float(execution_cfg.get("broker_read_timeout_seconds", 10.0)),
+        )
 
-    def login(self):
-        missing = [name for name, value in
-                   (("CHOICE_USER_ID", self.user_id), ("CHOICE_API_KEY", self.api_key))
-                   if not value]
-        hint = f" (missing: {', '.join(missing)})" if missing else ""
-        raise AuthenticationError(f"{self._NOT_WIRED}{hint}; refusing to trade through an unwired venue")
+    def _request(self, path: str, values: dict, *, authenticated: bool = True) -> Any:
+        if not path.startswith("/") or "://" in path:
+            raise SecurityError("Only fixed relative Choice API paths are permitted")
+        guard_endpoint(path)
+        if authenticated and not self.token:
+            raise AuthenticationError("Choice session is not authenticated; login first")
+        payload = "jData=" + json.dumps(values)
+        if authenticated:
+            payload += f"&jKey={self.token}"
+        try:
+            response = self.session.post(
+                self.BASE + path[1:], data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            raise BrokerError(f"Choice network request failed: {exc.__class__.__name__}") from exc
+        if not response.ok:
+            raise BrokerError(f"Choice API {response.status_code}: {response.reason}")
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise BrokerError("Choice API returned a non-JSON response") from exc
+        if isinstance(data, dict) and data.get("stat") not in (None, "Ok"):
+            message = str(data.get("emsg") or data.get("stat"))
+            if path == "/QuickAuth":
+                raise AuthenticationError(f"Choice login rejected: {message}")
+            raise OrderError(f"Choice rejected {path}: {message}")
+        return data
 
-    def ltp(self, sym):
-        raise MarketDataError(self._NOT_WIRED)
+    def login(self) -> bool:
+        missing = [
+            name for name, value in (
+                ("CHOICE_USER_ID", self.user_id),
+                ("CHOICE_PASSWORD", self.password),
+                ("CHOICE_TOTP", self.totp),
+                ("CHOICE_VENDOR_CODE", self.vendor_code),
+                ("CHOICE_API_KEY", self.api_secret),
+            )
+            if not value
+        ]
+        if missing:
+            raise AuthenticationError(f"Choice login requires: {', '.join(missing)}")
+        pwd = hashlib.sha256(self.password.encode("utf-8")).hexdigest()
+        app_key = hashlib.sha256(f"{self.user_id}|{self.api_secret}".encode("utf-8")).hexdigest()
+        raw = self._request("/QuickAuth", {
+            "source": "API", "apkversion": "1.0.0",
+            "uid": self.user_id, "pwd": pwd, "factor2": self.totp,
+            "vc": self.vendor_code, "appkey": app_key, "imei": self.imei,
+        }, authenticated=False)
+        token = str(raw.get("susertoken") or "")
+        if not token or token.upper().startswith("DUMMY"):
+            raise AuthenticationError("Choice login returned no session token")
+        self.token = token
+        self._username = self.user_id
+        self._account_id = str(raw.get("actid") or self.user_id)
+        return True
 
-    def hist(self, sym, tf_min=1, days=5):
-        raise MarketDataError(self._NOT_WIRED)
+    def whitelisted_ips(self) -> set[str] | None:
+        # Shoonya authenticates with a session token; there is no IP
+        # allowlist concept.  None signals compliance to skip the check.
+        return None
 
-    def place_super_order(self, sym, side, qty, target, stop, tag):
-        raise OrderError(self._NOT_WIRED)
+    def _resolve(self, sym: str) -> tuple[str, str, str]:
+        entry = self.security_map.get(str(sym).upper())
+        if not entry:
+            raise OrderError(
+                f"No Choice security is configured for {sym}; security_map entries must be "
+                "'EXCH|TOKEN|TRADINGSYMBOL' (e.g. 'NSE|2885|RELIANCE-EQ')"
+            )
+        parts = str(entry).split("|")
+        if len(parts) != 3 or not parts[0] or not parts[1].isdigit() or not parts[2]:
+            raise OrderError(
+                f"Malformed Choice security_map entry for {sym}: {entry!r} "
+                "(expected 'EXCH|TOKEN|TRADINGSYMBOL')"
+            )
+        return parts[0].upper(), parts[1], parts[2]
 
-    def wait_super_order(self, order_id, timeout_seconds):
-        raise OrderError(self._NOT_WIRED)
+    def ltp(self, sym: str) -> float:
+        return self.ltps([sym])[sym]
 
-    def cancel_super_order(self, order_id):
-        raise OrderError(self._NOT_WIRED)
+    def ltps(self, syms: list[str]) -> dict[str, float]:
+        result: dict[str, float] = {}
+        for sym in syms:
+            exchange, token, _ = self._resolve(sym)
+            raw = self._request("/GetQuotes", {"uid": self._username, "exch": exchange, "token": token})
+            try:
+                result[sym] = _valid_price(raw["lp"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise MarketDataError(f"Choice quote for {sym} is incomplete or invalid") from exc
+        return result
 
-    def modify_super_target(self, order_id, target):
-        raise OrderError(self._NOT_WIRED)
+    def hist(self, sym: str, tf_min: int = 1, days: int = 5):
+        if tf_min not in self._TIME_INTERVALS:
+            raise MarketDataError("Choice supports 1, 3, 5, 10, 15, 30, 60, 120, or 240-minute candles")
+        exchange, token, _ = self._resolve(sym)
+        end = now()
+        start = end - timedelta(days=days)
+        raw = self._request("/TPSeries", {
+            "ordersource": "API", "uid": self._username, "exch": exchange, "token": token,
+            "st": str(int(start.timestamp())), "et": str(int(end.timestamp())), "intrv": str(tf_min),
+        })
+        if not isinstance(raw, list):
+            raise MarketDataError(f"Choice history for {sym} is incomplete or invalid")
+        rows: list[tuple] = []
+        for bar in raw:
+            try:
+                rows.append((
+                    int(bar["time"]),
+                    _valid_price(bar["into"]), _valid_price(bar["inth"]),
+                    _valid_price(bar["intl"]), _valid_price(bar["intc"]),
+                    int(bar.get("intv") or 0),
+                ))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise MarketDataError(f"Malformed Choice history bar for {sym}") from exc
+        return rows
 
-    def exit_position(self, sym, side, qty, tag):
-        raise OrderError(self._NOT_WIRED)
+    @staticmethod
+    def _order_receipt(row: dict, fallback_id: str | None = None) -> OrderReceipt:
+        order_id = str(row.get("norenordno") or fallback_id or "")
+        if not order_id:
+            raise OrderError("Choice order response omitted norenordno")
+        status = str(row.get("status", "PENDING")).upper()
+        filled = int(row.get("fillshares") or 0)
+        if status == "OPEN":
+            status = "PART_TRADED" if filled > 0 else "PENDING"
+        elif status == "COMPLETE":
+            status = "TRADED"
+        elif status == "CANCELED":
+            status = "CANCELLED"
+        return OrderReceipt(order_id, status, filled, float(row.get("avgprc") or 0.0))
 
-    def wait_order(self, order_id, timeout_seconds):
-        raise OrderError(self._NOT_WIRED)
+    def _place(self, sym: str, side: str, qty: int, price_type: str, tag: str, trigger: float | None = None) -> OrderReceipt:
+        if side not in {"BUY", "SELL"} or qty <= 0:
+            raise OrderError("Invalid Choice order side or quantity")
+        exchange, _token, tsym = self._resolve(sym)
+        values = {
+            "ordersource": "API", "uid": self._username, "actid": self._account_id,
+            "trantype": side, "prd": "I", "exch": exchange, "tsym": tsym,
+            "qty": str(int(qty)), "dscqty": "0", "prctyp": price_type,
+            "prc": "0", "trgprc": str(round(_valid_price(trigger), 2)) if trigger else "0",
+            "ret": "DAY", "remarks": (tag or "ox")[:30], "amo": "NO",
+        }
+        raw = self._request("/PlaceOrder", values)
+        order_id = str(raw.get("norenordno") or "")
+        if not order_id:
+            raise OrderError("Choice PlaceOrder omitted norenordno")
+        return OrderReceipt(order_id, "PENDING", 0, 0.0)
 
-    def positions(self):
-        raise OrderError(self._NOT_WIRED)
+    def place_super_order(self, sym: str, side: str, qty: int, target: float, stop: float, tag: str) -> OrderReceipt:
+        target, stop = _valid_price(target), _valid_price(stop)
+        entry_quote = self.ltp(sym)
+        if (side == "BUY" and not stop < entry_quote < target) or (side == "SELL" and not target < entry_quote < stop):
+            raise OrderError("Super Order prices must bracket the current market price")
+        receipt = self._place(sym, side, qty, "MKT", tag)
+        self.db.ex(
+            "INSERT OR REPLACE INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (receipt.order_id, sym, side, qty, entry_quote, "SUPER", receipt.status, tag, iso(), self.name),
+        )
+        return receipt
+
+    def _book_receipt(self, order_id: str) -> OrderReceipt | None:
+        rows = self._request("/OrderBook", {"ordersource": "API", "uid": self._username})
+        if not isinstance(rows, list):
+            raise BrokerError("Malformed Choice order book")
+        for row in rows:
+            if str(row.get("norenordno")) == str(order_id):
+                return self._order_receipt(row, order_id)
+        return None
+
+    def wait_super_order(self, order_id: str, timeout_seconds: int) -> OrderReceipt:
+        deadline = time.monotonic() + timeout_seconds
+        last: OrderReceipt | None = None
+        while time.monotonic() < deadline:
+            last = self._book_receipt(order_id)
+            if last is None:
+                raise OrderError(f"Choice order {order_id} is absent from the order book")
+            if last.status in {"TRADED", "PART_TRADED", "REJECTED", "CANCELLED", "EXPIRED", "CLOSED"}:
+                return last
+            time.sleep(1.0)
+        raise OrderError(f"Timed out awaiting confirmation of order {order_id}; broker state is uncertain")
+
+    def wait_order(self, order_id: str, timeout_seconds: int) -> OrderReceipt:
+        return self.wait_super_order(order_id, timeout_seconds)
+
+    def cancel_super_order(self, order_id: str) -> None:
+        self._request("/CancelOrder", {"ordersource": "API", "uid": self._username, "norenordno": str(order_id)})
+
+    def modify_super_target(self, order_id: str, target: float) -> None:
+        # Shoonya has no Dhan-style bracket legs; the OMS manages stops and
+        # targets itself, so a leg-level modify must fail closed rather than
+        # silently pretend a protective target moved.  The OMS catches
+        # BrokerError here and falls back to its enforced-target logic (A3).
+        raise OrderError(
+            f"Choice does not support Dhan-style Super Order target modification ({order_id}); "
+            "targets are enforced by the OMS via protective stops"
+        )
+
+    def exit_position(self, sym: str, side: str, qty: int, tag: str) -> OrderReceipt:
+        receipt = self._place(sym, side, qty, "MKT", tag)
+        self.db.ex(
+            "INSERT OR REPLACE INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (receipt.order_id, sym, side, qty, 0.0, "MARKET", receipt.status, tag, iso(), self.name),
+        )
+        return receipt
+
+    def place_protective_stop(self, sym: str, qty: int, trigger: float, tag: str) -> OrderReceipt:
+        receipt = self._place(sym, "SELL", qty, "SL-MKT", tag, trigger=trigger)
+        self.db.ex(
+            "INSERT OR REPLACE INTO orders VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (receipt.order_id, sym, "SELL", int(qty), 0.0, "SL", receipt.status, tag[:80], iso(), self.name),
+        )
+        return receipt
+
+    def positions(self) -> list[dict]:
+        rows = self._request("/PositionBook", {"uid": self._username, "actid": self._account_id})
+        if not isinstance(rows, list):
+            raise BrokerError("Malformed Choice positions response")
+        result = []
+        for row in rows:
+            net = int(row.get("netqty") or 0)
+            if net == 0:
+                continue
+            tsym = str(row.get("tsym") or "").upper()
+            symbol = self._token_to_symbol.get(str(row.get("token") or ""), tsym or "UNKNOWN")
+            result.append({
+                "sym": symbol,
+                "tradingSymbol": tsym,
+                "netQty": net,
+                "averagePrice": float(row.get("avgprc") or 0.0),
+                "productType": row.get("prd", "I"),
+            })
+        return result
 
 
 class TradingViewBroker(BrokerBase):

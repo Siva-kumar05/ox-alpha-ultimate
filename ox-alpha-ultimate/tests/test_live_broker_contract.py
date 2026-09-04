@@ -18,6 +18,7 @@ No network, no broker account, and no wall-clock sleeps are involved.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -73,6 +74,26 @@ class _FakeSession:
         queue = self.responses.get((method, path))
         if not queue:
             raise AssertionError(f"unscripted HTTP call: {method} {path}")
+        entry = queue.popleft()
+        if entry["exc"] is not None:
+            raise entry["exc"]
+        return _FakeResponse(entry["status"], entry["payload"], headers=entry["headers"], text=entry["text"])
+
+    def post(self, url, data=None, headers=None, timeout=None):
+        """Noren-style form POST used by ChoiceBroker: jData=<json>&jKey=<token>."""
+        path = url.replace("https://api.shoonya.com/NorenWClientTP/", "/")
+        body: dict = {}
+        jkey = None
+        if data:
+            for part in str(data).split("&"):
+                if part.startswith("jData="):
+                    body = json.loads(part[len("jData="):])
+                elif part.startswith("jKey="):
+                    jkey = part[len("jKey="):]
+        self.calls.append(("POST", path, {"jData": body, "jKey": jkey}))
+        queue = self.responses.get(("POST", path))
+        if not queue:
+            raise AssertionError(f"unscripted HTTP call: POST {path}")
         entry = queue.popleft()
         if entry["exc"] is not None:
             raise entry["exc"]

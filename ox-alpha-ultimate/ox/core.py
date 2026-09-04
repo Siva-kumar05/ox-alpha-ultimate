@@ -127,15 +127,15 @@ class Cfg:
         platform = self.d.get("platform", "paper")
         if mode not in {"paper", "live"}:
             raise ConfigError("mode must be 'paper' or 'live'")
-        if platform not in {"paper", "dhan"}:
+        if platform not in {"paper", "dhan", "choice"}:
             raise ConfigError(
-                "platform must be 'paper' or 'dhan' (groww/tradingview/choice are "
+                "platform must be 'paper', 'dhan', or 'choice' (groww/tradingview are "
                 "not-wired scaffolds that fail closed; live crypto runs through the "
                 "promax orchestrator with config_promax.yaml, see docs/PROMAX_AGENTS.md)"
             )
-        if mode == "live" and platform != "dhan":
+        if mode == "live" and platform not in {"dhan", "choice"}:
             raise ConfigError(
-                "live mode currently supports platform: dhan only in the legacy runtime; "
+                "live mode currently supports platform: dhan or choice in the legacy runtime; "
                 "live crypto is available via the promax orchestrator (config_promax.yaml)"
             )
         if mode == "live" and os.getenv("OX_LIVE_EXECUTION_APPROVED", "") != "YES_I_UNDERSTAND_LIVE_TRADING":

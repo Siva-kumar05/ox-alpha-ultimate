@@ -48,9 +48,15 @@ class Compliance:
                 raise RuntimeError("broker did not expose an authenticated session")
             if self.cfg["mode"] == "live":
                 broker_ips = broker.whitelisted_ips()
-                configured_ips = set(self.cfg["ip_whitelist"])
-                if not broker_ips or not (configured_ips & broker_ips):
-                    raise RuntimeError("broker does not confirm a configured static IP")
+                if broker_ips is None:
+                    # Token-authenticated venues (e.g. Shoonya/Choice) have no
+                    # IP-whitelist concept; the egress gate in check_ip() still
+                    # applies, but there is nothing for the broker to confirm.
+                    LOG.info("Broker %s has no IP-whitelist confirmation (token auth); skipping static-IP check", broker.name)
+                else:
+                    configured_ips = set(self.cfg["ip_whitelist"])
+                    if not broker_ips or not (configured_ips & broker_ips):
+                        raise RuntimeError("broker does not confirm a configured static IP")
         except Exception as exc:
             self.halt(f"Broker authentication/compliance check failed: {exc}")
             return False

@@ -117,10 +117,46 @@ Gates that must be true before the first live order:
 - Binance live additionally needs `OX_PROMAX_AUTO_APPROVE` **unset** so every
   order goes through `python run.py intents` / `ok <iid>` human approval.
 
-**Choice India is a fail-closed scaffold, not a wired adapter**: credentials
-are accepted by the setup flow, but `platform: choice` refuses login and every
-order/data call with a clear "not wired" error until a real adapter lands.
-Never point the promax or legacy runtime at a venue that cannot execute.
+### Choice India (Shoonya) live
+
+`platform: choice` runs the legacy NSE intraday agent through the real
+**ChoiceBroker** adapter (Finvasia Shoonya/Noren gateway). Transport and
+payload contract are mirrored from the official Shoonya wrapper
+(`Shoonya-Dev/ShoonyaApi-py`) and its `NorenRestApiPy` base: form POSTs of
+`jData=<json>&jKey=<token>` to `https://api.shoonya.com/NorenWClientTP/`;
+login exchanges SHA-256 hashed password + `uid|apikey` app key for a session
+token. Credentials (prompted by `setup-live.sh`):
+
+- `CHOICE_USER_ID` / `CHOICE_PASSWORD` / `CHOICE_TOTP` (TPIN)
+- `CHOICE_VENDOR_CODE` / `CHOICE_API_KEY` (from your broker)
+- `CHOICE_IMEI` (defaults to `ox-alpha-ultimate`)
+
+**Before launching**, rewrite `security_map` entries to the Shoonya form
+`EXCH|TOKEN|TRADINGSYMBOL` (the Dhan numeric ids will fail closed):
+
+```yaml
+security_map:
+  RELIANCE: NSE|2885|RELIANCE-EQ
+  TCS:      NSE|11536|TCS-EQ
+```
+
+Then `bash scripts/live.sh choice` (or set `mode: live` + `platform: choice`
+manually). Known adapter limits (each fails closed, never silent):
+
+- **No depth/order-flow feed** - decisions run on LTP + candles; keep
+  `order_flow.primary: false` or every entry is blocked as
+  `ORDER_FLOW_UNAVAILABLE`.
+- **No Dhan-style Super Order leg modification** - breakeven target
+  adjustments raise; the OMS falls back to its enforced-target logic and
+  targets are protected by the broker-side stop (`place_protective_stop`).
+- **No IP whitelist** - Shoonya authenticates by session token, so the
+  Dhan static-IP confirmation is skipped (the egress `check_ip` gate still
+  applies if `ip_whitelist` is configured).
+- **Live-credential verification is unproven** - everything here is tested
+  offline against a scripted transport; the first live `login()` against the
+  real gateway (and the exact order-book/position field names) still needs a
+  supervised run with real Shoonya credentials. Until then, treat Choice as
+  demo-ready, not money-ready.
 
 ---
 
