@@ -33,7 +33,7 @@ from ox.brokers import (
     make_broker,
 )
 from ox.core import DB
-from test_live_broker_contract import _AttrDict, _FakeSession
+from support import _AttrDict, _FakeSession
 
 _AUDIT_KEY = "choice-contract-audit-key-at-least-thirty-two-chars"
 

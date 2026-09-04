@@ -469,6 +469,62 @@ def main() -> None:
         run_smoketest()
         return
 
+    if command == "venue-check":
+        from ox.venue_check import check_venue
+        import yaml
+        from ox.core import DB
+        from ox.brokers import make_broker
+
+        state_dir = PROJECT_ROOT / "state"
+        state_dir.mkdir(exist_ok=True)
+        db = DB(state_dir / "venue_check.db")
+        builders: dict[str, object] = {}
+
+        if os.getenv("DHAN_CLIENT_ID") and os.getenv("DHAN_TOKEN"):
+            raw = yaml.safe_load((PROJECT_ROOT / "config.yaml").read_text(encoding="utf-8"))
+
+            def _dhan(raw=raw):
+                cfg = dict(raw)
+                cfg["mode"] = "live"
+                cfg["platform"] = "dhan"
+                return make_broker(cfg, db)
+
+            builders["dhan"] = _dhan
+
+        if os.getenv("CHOICE_USER_ID") and os.getenv("CHOICE_PASSWORD"):
+            raw = yaml.safe_load((PROJECT_ROOT / "config_choice.yaml").read_text(encoding="utf-8"))
+
+            def _choice(raw=raw):
+                cfg = dict(raw)
+                cfg["mode"] = "live"
+                cfg["platform"] = "choice"
+                return make_broker(cfg, db)
+
+            builders["choice"] = _choice
+
+        if os.getenv("BINANCE_API_KEY") and os.getenv("BINANCE_API_SECRET"):
+            raw = yaml.safe_load((PROJECT_ROOT / "config_promax.yaml").read_text(encoding="utf-8"))
+
+            def _binance(raw=raw):
+                cfg = dict(raw)
+                cfg["mode"] = "live"
+                cfg["platform"] = "crypto"
+                return make_broker(cfg, db)
+
+            builders["binance"] = _binance
+
+        if not builders:
+            print("No venue credentials found in the environment; nothing to verify.")
+            print("Run 'bash scripts/setup-live.sh' first, or export the venue keys.")
+            raise SystemExit(2)
+
+        failed = False
+        for name, builder in builders.items():
+            status, detail = check_venue(name, builder)  # type: ignore[arg-type]
+            print(f"VENUE {name:8s} {status:4s} {detail}")
+            failed = failed or status == "FAIL"
+        raise SystemExit(2 if failed else 0)
+
     if command == "track-record":
         from ox.track_record import main as _track_main
         raise SystemExit(_track_main(sys.argv[2:]))
@@ -481,7 +537,14 @@ def main() -> None:
 
     from ox.agent import Agent
 
-    agent = Agent(str(PROJECT_ROOT / "config.yaml"))
+    # run/status accept an optional config path (e.g. config_choice.yaml for a
+    # Choice India session, which lives on its own db); subcommands such as
+    # approve keep argv[2] as their own argument, so only commands with a free
+    # argv[2] honor a trailing config.
+    config_arg = str(PROJECT_ROOT / "config.yaml")
+    if command in ("run", "status") and len(sys.argv) > 2:
+        config_arg = sys.argv[2]
+    agent = Agent(config_arg)
     if command == "train":
         agent.nightly_training()
     elif command == "status":
@@ -517,7 +580,7 @@ def main() -> None:
         agent.run_forever()
     else:
         raise SystemExit(
-            "Usage: python run.py [run|train|status|approve|kill|smoketest|track-record]\n"
+            "Usage: python run.py [run [config.yaml]|train|status [config.yaml]|approve|kill|smoketest|track-record]\n"
             "       python run.py [live-test <seconds>|validate-online]\n"
             "       python run.py [promax [seconds]|promax-smoke|promax-status|"
             "promax-kill|intents [STATUS]|ok <iid>|deny <iid>]"

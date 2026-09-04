@@ -2,8 +2,9 @@
 # OX-ALPHA live launcher - one command per venue.
 #
 #   bash scripts/live.sh live-test      # Dhan connectivity/credential check (safe, exits 0/2)
-#   bash scripts/live.sh dhan           # legacy NSE intraday agent on live Dhan
-#   bash scripts/live.sh choice         # legacy NSE intraday agent on live Choice India (Shoonya)
+#   bash scripts/live.sh verify-all     # login-only rehearsal: every venue with keys (safe, no orders)
+#   bash scripts/live.sh dhan           # legacy NSE intraday agent on live Dhan (config.yaml)
+#   bash scripts/live.sh choice         # legacy NSE intraday agent on live Choice India (config_choice.yaml)
 #   bash scripts/live.sh binance [secs] # promax orchestrator: Dhan equity + Binance live crypto
 #   bash scripts/live.sh track          # track record
 #   bash scripts/live.sh status         # positions / strategies / recent trades
@@ -62,11 +63,10 @@ case "$cmd" in
   choice)
     load_secrets
     require CHOICE_USER_ID CHOICE_PASSWORD CHOICE_TOTP CHOICE_VENDOR_CODE CHOICE_API_KEY OX_AUDIT_KEY
-    sed -i 's/^mode: paper/mode: live/' "$ROOT/config.yaml"
-    sed -i 's/^platform: paper/platform: choice/' "$ROOT/config.yaml"
-    echo "config.yaml -> mode: live, platform: choice (idempotent)"
-    echo "NOTE: security_map entries must be 'EXCH|TOKEN|TRADINGSYMBOL' (e.g. NSE|2885|RELIANCE-EQ); see RUNBOOKS.md"
-    cd "$ROOT" && exec "$PYTHON" run.py run
+    sed -i 's/^mode: paper/mode: live/' "$ROOT/config_choice.yaml"
+    sed -i 's/^platform: paper/platform: choice/' "$ROOT/config_choice.yaml"
+    echo "config_choice.yaml -> mode: live, platform: choice (idempotent)"
+    cd "$ROOT" && exec "$PYTHON" run.py run config_choice.yaml
     ;;
   binance)
     load_secrets
@@ -80,6 +80,14 @@ case "$cmd" in
     load_secrets
     require DHAN_CLIENT_ID DHAN_TOKEN
     cd "$ROOT" && exec "$PYTHON" run.py live-test "${1:-0}"
+    ;;
+  verify-all)
+    # Login-only rehearsal against every venue that has keys; never places
+    # an order.  Skips venues whose credentials are absent; FAIL exits 2.
+    if [ -f "$SECRETS" ]; then
+      load_secrets
+    fi
+    cd "$ROOT" && exec "$PYTHON" run.py venue-check
     ;;
   track)
     load_secrets
@@ -96,6 +104,8 @@ case "$cmd" in
   paper)
     sed -i 's/^mode: live/mode: paper/' "$ROOT/config.yaml"
     sed -i 's/^platform: \(dhan\|choice\)/platform: paper/' "$ROOT/config.yaml"
+    sed -i 's/^mode: live/mode: paper/' "$ROOT/config_choice.yaml"
+    sed -i 's/^platform: choice/platform: paper/' "$ROOT/config_choice.yaml"
     sed -i 's/^mode: live/mode: paper/' "$ROOT/config_promax.yaml"
     sed -i 's/^platform: dhan/platform: paper/' "$ROOT/config_promax.yaml"
     echo "configs reverted to paper"

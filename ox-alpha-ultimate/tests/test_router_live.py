@@ -35,22 +35,16 @@ from ox.agents.capital_allocator import CapitalAllocator
 from ox.agents.orchestrator import DataPump, ExecutionRouter
 from ox.brokers import OrderError
 from ox.crypto import CryptoMicroBroker
-from test_crypto_live import ScriptedCcxt, install_fake_ccxt, live_env, make_live_broker
-
-
-class MustNotTouch:
-    """Sentinel equity broker: any attribute access is a routing bug."""
-
-    def __getattr__(self, name):
-        raise AssertionError(f"equity broker was touched for a crypto signal: {name}")
-
-
-def make_agent(agent_id: str, agent_type: AgentType, positions=None):
-    return SimpleNamespace(
-        agent_id=agent_id,
-        config=SimpleNamespace(agent_type=agent_type),
-        positions=positions if positions is not None else {},
-    )
+from support import (
+    ScriptedCcxt,
+    install_fake_ccxt,
+    live_env,
+    make_live_broker,
+    MustNotTouch,
+    buy,
+    close,
+    make_agent,
+)
 
 
 def make_harness(monkeypatch, markets, symbols, *, weights=None, ticker_price=100.0,
@@ -65,17 +59,6 @@ def make_harness(monkeypatch, markets, symbols, *, weights=None, ticker_price=10
     router = ExecutionRouter(bus, MustNotTouch(), broker, allocator,
                              risk_coordinator=object())
     return router, broker, allocator, bus, client
-
-
-def buy(agent_id, symbol, price, qty, leverage=1.0, stop=None, target=None):
-    return Signal(agent_id=agent_id, symbol=symbol, action="buy", strength=1.0,
-                  price=price, quantity=qty, leverage=leverage,
-                  stop_loss=stop, take_profit=target)
-
-
-def close(agent_id, symbol, price, qty):
-    return Signal(agent_id=agent_id, symbol=symbol, action="close", strength=1.0,
-                  price=price, quantity=qty, metadata={"reason": "test"})
 
 
 # ── market-type inference ────────────────────────────────────────────────────

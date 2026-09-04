@@ -86,13 +86,14 @@ sqlite3 oxalpha.db "SELECT * FROM events WHERE kind='ALPHA_DECAY_ALERT' AND ts >
 
 ---
 
-## Live Launch (Dhan / Binance)
+## Live Launch (Dhan / Binance / Choice)
 
 Credentials are stored **once** in `~/.ox_secrets.env` (chmod 600) by an
 interactive prompt; re-run it any time a key changes:
 
 ```bash
-bash scripts/setup-live.sh        # prompts: Dhan client ID/token, instance IP, Binance key/secret
+bash scripts/setup-live.sh   # prompts: Dhan client ID/token, machine public IP,
+                             # Binance key/secret, Choice Shoonya keys, audit key
 ```
 
 Launch with one command - the launcher sources the secrets file, flips the
@@ -100,7 +101,9 @@ right config to `mode: live`, and runs the venue:
 
 ```bash
 bash scripts/live.sh live-test    # Dhan connectivity + credential check (exit 0/2, safe)
-bash scripts/live.sh dhan         # legacy NSE intraday agent, live Dhan
+bash scripts/live.sh verify-all   # login-only rehearsal for EVERY venue with keys (safe)
+bash scripts/live.sh dhan         # legacy NSE intraday agent, live Dhan (config.yaml)
+bash scripts/live.sh choice       # legacy NSE intraday agent, live Choice India (config_choice.yaml)
 bash scripts/live.sh binance      # promax orchestrator: Dhan equity + Binance spot/perp
 bash scripts/live.sh track        # track record
 bash scripts/live.sh status       # positions / strategies / recent trades
@@ -111,8 +114,13 @@ Gates that must be true before the first live order:
 
 - `OX_LIVE_EXECUTION_APPROVED` is written by the setup script (never type
   real money through a session that lacks it).
-- The Dhan IP whitelist (`ip_whitelist` + `DHAN_STATIC_IP` env) contains the
-  instance's **public** IP; the boot's egress check verifies it.
+- The egress allowlist (`ip_whitelist` + `DHAN_STATIC_IP` env) contains the
+  machine's **public** IP; the boot's live `check_ip` verifies it for Dhan
+  AND Choice (Shoonya has no server-side whitelist, but the repo-level gate
+  applies to every live venue).  Home ISPs rotate IPs: if the boot halts
+  with `Egress IP ... is not in configured allowlist`, re-export
+  `DHAN_STATIC_IP` (or re-run setup-live.sh) with the new address from
+  https://api.ipify.org.
 - `OX_AUDIT_KEY` is auto-generated when left blank.
 - Binance live additionally needs `OX_PROMAX_AUTO_APPROVE` **unset** so every
   order goes through `python run.py intents` / `ok <iid>` human approval.
@@ -131,17 +139,17 @@ token. Credentials (prompted by `setup-live.sh`):
 - `CHOICE_VENDOR_CODE` / `CHOICE_API_KEY` (from your broker)
 - `CHOICE_IMEI` (defaults to `ox-alpha-ultimate`)
 
-**Before launching**, rewrite `security_map` entries to the Shoonya form
-`EXCH|TOKEN|TRADINGSYMBOL` (the Dhan numeric ids will fail closed):
+**No config rewrite needed**: the shipped **`config_choice.yaml`** already
+carries the Shoonya form (same NSE tokens, `-EQ` tradingsymbols), its own
+`choice.db` positions ledger, and `order_flow.primary: false` (Choice has no
+depth feed). `bash scripts/live.sh choice` flips that file to live and runs
+it:
 
-```yaml
-security_map:
-  RELIANCE: NSE|2885|RELIANCE-EQ
-  TCS:      NSE|11536|TCS-EQ
+```bash
+bash scripts/live.sh choice                    # live NSE intraday agent on Choice
+python run.py status config_choice.yaml        # inspect THAT session (separate db)
+bash scripts/live.sh paper                     # revert both legacy configs
 ```
-
-Then `bash scripts/live.sh choice` (or set `mode: live` + `platform: choice`
-manually). Known adapter limits (each fails closed, never silent):
 
 - **No depth/order-flow feed** - decisions run on LTP + candles; keep
   `order_flow.primary: false` or every entry is blocked as
@@ -149,14 +157,67 @@ manually). Known adapter limits (each fails closed, never silent):
 - **No Dhan-style Super Order leg modification** - breakeven target
   adjustments raise; the OMS falls back to its enforced-target logic and
   targets are protected by the broker-side stop (`place_protective_stop`).
-- **No IP whitelist** - Shoonya authenticates by session token, so the
-  Dhan static-IP confirmation is skipped (the egress `check_ip` gate still
-  applies if `ip_whitelist` is configured).
+- **No IP whitelist at Shoonya** - the broker authenticates by session token,
+  so the Dhan static-IP confirmation is skipped; the repo-level egress
+  `check_ip` gate still applies in live mode, so the machine IP must be in
+  the allowlist via `DHAN_STATIC_IP` (see Live Launch above).
 - **Live-credential verification is unproven** - everything here is tested
   offline against a scripted transport; the first live `login()` against the
   real gateway (and the exact order-book/position field names) still needs a
   supervised run with real Shoonya credentials. Until then, treat Choice as
   demo-ready, not money-ready.
+
+---
+
+## Desktop / Laptop Deployment (no AWS)
+
+The same launchers run from any machine with Python + internet.  Two
+machine-level rules matter more than the venue choice:
+
+1. **Do not run live from a cloud-synced folder** (OneDrive/Dropbox).  File
+   locks and conflict copies can corrupt the SQLite state or `KILL.flag`
+   mid-session.  Clone to a plain path, e.g. `C:\ox-alpha-src` (Windows) or
+   `~/ox-alpha-src` (Linux):
+
+   ```bash
+   cd ~ && git clone https://github.com/Siva-kumar05/ox-alpha-ultimate.git ox-alpha-src
+   cd ~/ox-alpha-src/ox-alpha-ultimate
+   python -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   bash scripts/setup-live.sh
+   ```
+
+2. **Keep the machine awake and online the whole session** (09:15-15:30 IST)
+   so the square-off runs; disable sleep/hibernate and set the lid to do
+   nothing.  A laptop that sleeps at 14:00 leaves a position open until the
+   next boot - the square-off only fires while the loop runs.
+
+Per venue from a desktop:
+
+- **Choice** - easiest from home: session-token auth.  Only the repo-level
+  egress check needs your IP: export `DHAN_STATIC_IP` to your current public
+  IP (https://api.ipify.org) or the boot halts.  `bash scripts/live.sh
+  choice`.
+- **Dhan** - server-side IP allowlist: add the PC's public IP in the Dhan
+  portal AND export `DHAN_STATIC_IP` with the same address.  Home IPs are
+  dynamic - update both after every ISP/router change.  `bash
+  scripts/live.sh dhan`.
+- **Binance (promax)** - crypto agents need `BINANCE_API_KEY`/
+  `BINANCE_API_SECRET`; the promax boot **always** logs in the Dhan equity
+  side too, so Dhan keys + the Dhan portal IP whitelist are required on the
+  desktop as well.  Live promax equity quotes additionally need a
+  `security_map` of Dhan securityIds for the equity symbols you enable -
+  take the ids from your Dhan portal, never guess them:
+
+  ```yaml
+  # config_promax.yaml -> security_map (Dhan numeric form, ids from YOUR portal)
+  security_map:
+    SUZLON: '11001'   # <- placeholder: replace with the real Dhan securityId
+  ```
+
+  To run Binance **crypto-only** from home, disable the equity agent blocks
+  in `config_promax.yaml` (`enabled: false` under each equity agent) and set
+  `mode: live` / `platform: dhan`; the Dhan login is still required at boot.
 
 ---
 

@@ -54,6 +54,7 @@ risk:
 # live mode additionally requires OX_LIVE_EXECUTION_APPROVED=YES_I_UNDERSTAND_LIVE_TRADING.
 crypto:
   api_key_env: BINANCE_API_KEY
+  allow_perp_leverage: false   # fail-closed no-debt default; true enables margin leverage on perps
   api_secret_env: BINANCE_API_SECRET
   markets:
     BTCUSDT: swap

@@ -859,18 +859,6 @@ class DhanBroker(BrokerBase):
 
 
 
-class GrowwBroker(BrokerBase):
-    name = "groww"
-    def __init__(self, cfg, db):
-        super().__init__(cfg, db)
-        self.api_key=os.getenv(cfg.get("platforms",{}).get("groww_api_key_env","GROWW_API_KEY"),"").strip()
-        self.api_secret=os.getenv(cfg.get("platforms",{}).get("groww_api_secret_env","GROWW_API_SECRET"),"").strip()
-    def login(self):
-        if not self.api_key: raise AuthenticationError("GROWW_API_KEY not set")
-        self.token="groww-session"; return True
-    def ltp(self,sym): raise MarketDataError("Wire Groww LTP endpoint")
-    def hist(self,sym,tf_min=1,days=5): raise MarketDataError("Wire Groww hist endpoint")
-
 class ChoiceBroker(BrokerBase):
     """Choice India (Finvasia) live adapter over the Shoonya/Noren gateway.
 
@@ -1159,43 +1147,9 @@ class ChoiceBroker(BrokerBase):
         return result
 
 
-class TradingViewBroker(BrokerBase):
-    name = "tradingview"
-    def __init__(self, cfg, db):
-        super().__init__(cfg, db)
-        self.secret=os.getenv(cfg.get("platforms",{}).get("tradingview_webhook_secret_env","TV_WEBHOOK_SECRET"),"").strip()
-        self._signals={}
-    def login(self):
-        self.token="tv-bridge"; return True
-    def ingest_webhook(self, payload: dict, signature: str):
-        import hmac, hashlib
-        if not self.secret: raise AuthenticationError("TV_WEBHOOK_SECRET not set")
-        expected=hmac.new(self.secret.encode(), json.dumps(payload,sort_keys=True).encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected): raise SecurityError("Invalid TradingView signature")
-        self._signals[payload["symbol"]]=payload
-
-class BinanceBroker(BrokerBase):
-    name="binance"
-    def __init__(self,cfg,db):
-        super().__init__(cfg,db)
-        self.key=os.getenv(cfg.get("platforms",{}).get("binance_api_key_env","BINANCE_API_KEY"),"").strip()
-        self.secret=os.getenv(cfg.get("platforms",{}).get("binance_api_secret_env","BINANCE_API_SECRET"),"").strip()
-    def login(self):
-        if not self.key: raise AuthenticationError("BINANCE_API_KEY not set")
-        try:
-            import ccxt
-            self.ccxt=ccxt.binance({"apiKey":self.key,"secret":self.secret,"enableRateLimit":True})
-            self.token="binance-session"; return True
-        except ImportError as e:
-            raise AuthenticationError("ccxt not installed for Binance") from e
-
-
 def make_broker(cfg, db) -> BrokerBase:
     plat=str(cfg.get("platform","paper")).lower()
-    if plat == "groww": return GrowwBroker(cfg,db)
     if plat == "choice": return ChoiceBroker(cfg,db)
-    if plat == "tradingview": return TradingViewBroker(cfg,db)
-    if plat=="binance": return BinanceBroker(cfg,db)
     if plat in {"crypto_paper","crypto"}:
         from .crypto import CryptoMicroBroker
         return CryptoMicroBroker(cfg,db)

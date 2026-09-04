@@ -19,7 +19,7 @@ echo "============================================================"
 
 read -rp "Dhan client ID [blank to skip]: " DHAN_CLIENT_ID
 read -rsp "Dhan access token (hidden) [blank to skip]: " DHAN_TOKEN; echo
-read -rp "Dhan whitelisted instance public IP, e.g. 13.207.244.242 [blank to skip]: " DHAN_STATIC_IP
+read -rp "Machine public IP for the live egress gate (Dhan portal whitelist AND Choice boot check), e.g. 13.207.244.242 [blank to skip]: " DHAN_STATIC_IP
 read -rsp "Binance API key (hidden) [blank to skip]: " BINANCE_API_KEY; echo
 read -rsp "Binance API secret (hidden) [blank to skip]: " BINANCE_API_SECRET; echo
 read -rp "Choice India user ID (Shoonya login id) [blank to skip]: " CHOICE_USER_ID

@@ -52,6 +52,9 @@ class CryptoMicroBroker:
         self.min_notional = float(crypto_cfg.get("min_notional_usdt", 5.0))
         self.fee_bps = float(crypto_cfg.get("fees_bps", 10.0)) / 10000
         self.slip_bps = float(crypto_cfg.get("slippage_bps", 5.0)) / 10000
+        # Fail-closed no-debt default: leveraged perpetuals are margin debt
+        # and are refused unless the operator explicitly opts in.
+        self.allow_perp_leverage = bool(crypto_cfg.get("allow_perp_leverage", False))
         self.prices = {"BTCUSDT": 68000, "ETHUSDT": 3200, "SOLUSDT": 150}
         self.pos = {}  # sym -> {qty, avg}
         self._lock = threading.RLock()
@@ -212,6 +215,12 @@ class CryptoMicroBroker:
             raise OrderError(
                 f"Refusing leveraged spot order for {sym}: spot is cash-only "
                 f"(leverage {leverage:.2f}x requested)"
+            )
+        if market == "swap" and leverage > 1.0 + 1e-9 and not self.allow_perp_leverage:
+            raise OrderError(
+                f"Refusing leveraged perpetual order for {sym}: perp leverage is disabled by "
+                f"default (no-debt rule); set crypto.allow_perp_leverage: true to enable "
+                f"margin trading ({leverage:.2f}x requested)"
             )
         self._require_live_client("order")
         ccxt_sym = self._ccxt_symbol(sym)

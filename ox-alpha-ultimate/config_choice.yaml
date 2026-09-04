@@ -1,0 +1,383 @@
+mode: paper
+platform: paper
+symbols:
+- RELIANCE
+- HDFCBANK
+- INFY
+- TCS
+- ICICIBANK
+exchange: NSE
+capital: 500000
+tick_seconds: 3
+timeframe_sec: 60
+history_days: 95
+market_open: 09:15
+entry_cutoff: '14:45'
+squareoff: '15:15'
+market_close: '15:30'
+ip_whitelist: []
+ip_whitelist_env: DHAN_STATIC_IP
+security_map:
+  RELIANCE: NSE|2885|RELIANCE-EQ
+  HDFCBANK: NSE|1333|HDFCBANK-EQ
+  INFY: NSE|1594|INFY-EQ
+  TCS: NSE|11536|TCS-EQ
+  ICICIBANK: NSE|4963|ICICIBANK-EQ
+execution:
+  autonomous: true
+  allow_short: false
+  order_confirm_timeout_seconds: 8
+  max_data_staleness_seconds: 10
+  max_consecutive_broker_errors: 5
+  rate_limit_backoff_seconds: 3
+  max_rate_limit_backoff_seconds: 30
+  signal_history_candles: 300
+  reconcile_interval_seconds: 30
+  min_vote_fraction: 0.3
+  min_support_strategies: 1
+  history_chunk_days: 25
+  trailing_jump: 0.0
+order_flow:
+  enabled: true
+  primary: false
+  depth_levels: 20
+  max_staleness_seconds: 2.0
+  min_observations: 300
+  min_side_notional: 50000
+  max_spread_bps: 12.0
+  min_book_imbalance: 0.12
+  min_flow_imbalance: 0.04
+  min_microprice_edge_bps: 0.5
+  pressure_ema_alpha: 0.2
+  min_pressure_ema: 0.08
+  min_positive_streak: 3
+  min_liquidity_score: 0.6
+  require_replay_validation: true
+  replay_min_signals: 30
+  replay_horizon_candles: 5
+  replay_min_hit_rate: 0.5
+  replay_min_mean_return_bps: 0.0
+  replay_max_records: 10000
+news:
+  refresh_seconds: 900
+  max_age_minutes: 180
+risk:
+  risk_per_trade_pct: 0.5
+  max_positions: 5
+  daily_loss_cap_pct: 2.0
+  daily_loss_cap_abs: 10000
+  max_notional_per_trade: 200000
+  max_gross_exposure: 500000
+  portfolio_var_limit_pct: 3.0
+  cooldown_after_losses: 3
+costs:
+  slippage_pct: 0.03
+  brokerage_per_order: 20
+  stt_pct: 0.025
+  txn_charge_pct: 0.00297
+  gst_pct: 18.0
+  sebi_fee_pct: 0.0001
+  stamp_duty_pct: 0.003
+training:
+  iterations: 5
+  population: 12
+  elite_k: 4
+  min_trades: 25
+  promote_score: 0.8
+  min_symbols: 3
+  training_history_candles: 10000
+  min_oos_candles: 60
+  min_signal_stability: 0.95
+  walk_forward_folds: 3
+  embargo_candles: 5
+  random_seed: null
+  require_human_approval: true
+auto_train_on_boot: true
+db_path: choice.db
+market_holidays:
+- '2026-01-15'
+- '2026-01-26'
+- '2026-03-03'
+- '2026-03-26'
+- '2026-03-31'
+- '2026-04-03'
+- '2026-04-14'
+- '2026-05-01'
+- '2026-05-28'
+- '2026-06-26'
+- '2026-09-14'
+- '2026-10-02'
+- '2026-10-20'
+- '2026-11-10'
+- '2026-11-24'
+- '2026-12-25'
+regime:
+  enabled: true
+  lookback_candles: 500
+  vol_high_percentile: 80
+  vol_low_percentile: 20
+  trend_adx_threshold: 25
+multi_timeframe:
+  enabled: true
+  timeframes:
+  - 5
+  - 15
+  alignment_threshold: 0.6
+  ema_fast: 9
+  ema_slow: 21
+cross_asset:
+  enabled: true
+  nifty_trend_filter: true
+  vix_overlay: true
+  vix_high_threshold: 20
+  relative_strength: true
+  min_rs_rank: 3
+self_healing:
+  degraded_size_multiplier: 0.5
+  observation_duration_seconds: 300
+  l1_sharpe_threshold: 0.3
+  l2_sharpe_threshold: 0.0
+  l3_sharpe_threshold: -0.5
+advanced_risk:
+  kelly_fraction_cap: 0.25
+  max_drawdown_pct: 10.0
+  drawdown_lookback: 252
+  cov_lookback: 252
+  cov_method: "ledoit_wolf"
+  rebalance_threshold: 0.05
+  min_correlation: -0.9
+  max_correlation: 0.9
+slippage_model:
+  base_slippage_bps: 3.0
+  spread_weight: 0.5
+  depth_weight: 0.3
+  volume_weight: 0.2
+  volatility_weight: 0.1
+  max_slippage_bps: 50.0
+  min_slippage_bps: 0.5
+stop_management:
+  default_type: "atr_trailing"
+  default_atr_mult: 2.0
+  default_trail_pct: 0.02
+  default_time_bars: 100
+  breakeven_trigger_pct: 0.01
+  chandelier_mult: 3.0
+  chandelier_lookback: 22
+multi_stop:
+  primary: "atr_trailing"
+  secondary: ["time", "breakeven"]
+position_sizing:
+  min_smallcap_notional: 5000
+  order_flow:
+    enabled: true
+    max_multiplier: 2.0
+    min_multiplier: 0.25
+    flow_imbalance_weight: 0.4
+    book_imbalance_weight: 0.3
+    pressure_weight: 0.2
+    liquidity_weight: 0.1
+  correlation:
+    enabled: true
+    max_multiplier: 1.5
+    min_multiplier: 0.5
+  drawdown:
+    enabled: true
+    max_multiplier: 1.0
+    min_multiplier: 0.1
+  regime:
+    enabled: true
+microstructure:
+  enabled: true
+  vpin_bucket_size: 50
+  lookback_ticks: 1000
+  toxicity_threshold: 0.7
+post_trade_analysis:
+  enabled: true
+  lookback_trades: 500
+  decay_window_bars: 20
+  min_trades_for_decay: 30
+alpha_decay:
+  enabled: true
+  alert_threshold: 0.5
+  check_interval_hours: 4
+rebalancing:
+  enabled: true
+  threshold: 0.05
+  min_trade_notional: 5000
+  max_turnover_pct: 0.3
+  interval_hours: 4
+hedging:
+  enabled: false
+  max_hedge_ratio: 1.0
+  min_hedge_ratio: 0.0
+  target_beta: 0.0
+  instruments:
+    index_future: "NIFTY_FUT"
+    sector_etf: "NIFTYBEES"
+    inverse_etf: "NIFTYBEES_INV"
+risk_budget:
+  total_var_budget: 0.05
+event_calendar:
+  enabled: true
+  auto_fetch: true
+  fetch_interval_hours: 24
+  avoidance_rules:
+    - event_type: "earnings"
+      impact: "high"
+      pre_bars: 5
+      post_bars: 2
+      action: "close"
+      max_position_pct: 0.0
+    - event_type: "earnings"
+      impact: "medium"
+      pre_bars: 3
+      post_bars: 1
+      action: "reduce"
+      max_position_pct: 0.5
+    - event_type: "earnings"
+      impact: "low"
+      pre_bars: 2
+      post_bars: 1
+      action: "block_new"
+      max_position_pct: 1.0
+    - event_type: "dividend"
+      impact: "medium"
+      pre_bars: 2
+      post_bars: 1
+      action: "reduce"
+      max_position_pct: 0.75
+    - event_type: "expiry"
+      impact: "high"
+      pre_bars: 3
+      post_bars: 0
+      action: "close"
+      max_position_pct: 0.0
+    - event_type: "economic"
+      impact: "critical"
+      pre_bars: 2
+      post_bars: 2
+      action: "block_new"
+      max_position_pct: 0.5
+cost_aware_selection:
+  enabled: true
+  cost_weight: 0.3
+  min_trades_for_cost: 20
+  max_cost_drag: 0.5
+  turnover_penalty: 0.1
+parameter_drift:
+  enabled: true
+  lookback_trades: 100
+  drift_threshold: 0.15
+  min_significance: 0.05
+  check_interval_hours: 6
+live_performance_monitor:
+  enabled: true
+  window_trades: 50
+  degradation_threshold: -0.1
+  min_trades: 20
+failover:
+  enabled: true
+  primary: "dhan"
+  failover:
+    - "paper"
+  health_check_interval: 30
+  max_failover_attempts: 3
+health_checks:
+  enabled: true
+  interval_seconds: 30
+  timeout_seconds: 5
+graceful_shutdown:
+  enabled: true
+  timeout_seconds: 60
+  force_timeout_seconds: 10
+database_backup:
+  enabled: true
+  backup_dir: "backups"
+  interval_hours: 6
+  retention_days: 30
+  max_backups: 100
+  compress: true
+  timeout_seconds: 300
+chaos_engineering:
+  enabled: false
+  experiments:
+    - name: "broker_latency"
+      chaos_type: "latency"
+      severity: "medium"
+      target: "broker"
+      duration_seconds: 60
+      probability: 0.3
+      parameters:
+        latency_ms: 500
+        jitter_ms: 200
+    - name: "broker_errors"
+      chaos_type: "error"
+      severity: "high"
+      target: "broker"
+      duration_seconds: 60
+      probability: 0.1
+      parameters:
+        error_type: "ConnectionError"
+        error_message: "Broker unavailable"
+    - name: "database_slow"
+      chaos_type: "latency"
+      severity: "medium"
+      target: "database"
+      duration_seconds: 120
+      probability: 0.2
+      parameters:
+        latency_ms: 2000
+        jitter_ms: 500
+secret_rotation:
+  enabled: true
+  check_interval_hours: 24
+  secrets_dir: ".secrets"
+  encryption_key_env: "SECRET_ENCRYPTION_KEY"
+  env_mapping:
+    dhan_token: "DHAN_TOKEN"
+    dhan_client_id: "DHAN_CLIENT_ID"
+    dhan_pin: "DHAN_PIN"
+    dhan_totp_secret: "DHAN_TOTP_SECRET"
+compliance_reporting:
+  enabled: true
+  reports_dir: "compliance_reports"
+  default_format: "json"
+  schedule:
+    daily: "06:00"
+    weekly: "mon 06:00"
+    monthly: "1 06:00"
+leverage_engine:
+  enabled: true
+  target_vol_pct: 0.8
+  min_leverage: 1.0
+  max_leverage_global: 10.0
+  max_crypto_scalp: 10.0
+  liquidation_buffer: 0.4
+  confidence_weight: 0.6
+  max_drawdown_mult: 3.5
+  sizer_cap_mult: 3.5
+metrics_export:
+  enabled: true
+  prometheus: true
+  json: true
+config_reload:
+  enabled: true
+  poll_interval_seconds: 5
+
+# Dynamic universe scan at boot (fail-open: static symbols kept on any error).
+universe:
+  auto_scan: true
+  price_ceiling: 500
+  top_k: 12
+  candidates:
+  - YESBANK
+  - IDFCFIRSTB
+  - SUZLON
+  - IRFC
+  - IOB
+  - CANBK
+  - RELIANCE
+  - HDFCBANK
+  - INFY
+  - TCS
+  - ICICIBANK

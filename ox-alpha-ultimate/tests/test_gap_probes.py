@@ -306,6 +306,62 @@ class ChoiceVenueProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(OrderError, "No Choice security is configured"):
             broker.place_super_order("TCS", "BUY", 1, 2.0, 1.0, "x")
 
+    def test_shipped_choice_config_is_boot_valid_in_paper_and_live(self):
+        """config_choice.yaml must boot under Cfg in paper mode with no env,
+        and in live mode once the egress IP env is supplied - every symbol
+        mirrored by a resolvable Choice security_map entry, order-flow not
+        primary (Choice has no depth feed), and its own db so a Choice
+        session never shares a positions ledger with a Dhan one.
+        """
+        source = Path(__file__).resolve().parents[1] / "config_choice.yaml"
+        raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+        self.assertEqual(raw["mode"], "paper")
+        self.assertEqual(raw["platform"], "paper")
+        self.assertEqual(raw["db_path"], "choice.db")
+        self.assertFalse(raw["order_flow"]["primary"])
+        symbols = {str(s).upper() for s in raw["symbols"]}
+        self.assertEqual(set(raw["security_map"]), symbols)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config_choice.yaml"
+            path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+            with patch.dict("os.environ", {}, clear=True):
+                Cfg(path)  # paper: no env, no whitelist needed
+            live = dict(raw)
+            live["mode"] = "live"
+            live["platform"] = "choice"
+            path.write_text(yaml.safe_dump(live), encoding="utf-8")
+            # Live without an egress IP fails closed (affirmation set so the
+            # failure is specifically the missing whitelist entry).
+            with patch.dict("os.environ",
+                            {"OX_LIVE_EXECUTION_APPROVED": "YES_I_UNDERSTAND_LIVE_TRADING"},
+                            clear=True), self.assertRaises(ConfigError):
+                Cfg(path)
+            # Live with the egress IP env merges it into the allowlist.
+            with patch.dict("os.environ",
+                            {"OX_LIVE_EXECUTION_APPROVED": "YES_I_UNDERSTAND_LIVE_TRADING",
+                             "DHAN_STATIC_IP": "203.0.113.7"},
+                            clear=True):
+                cfg = Cfg(path)
+                self.assertIn("203.0.113.7", cfg["ip_whitelist"])
+
+    def test_shipped_choice_config_entries_resolve(self):
+        """Every security_map value in config_choice.yaml parses as
+        EXCH|TOKEN|TRADINGSYMBOL and _resolve returns the fields an order
+        or quote needs - no invented tokens, no silent fallback.
+        """
+        source = Path(__file__).resolve().parents[1] / "config_choice.yaml"
+        raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+        broker = ChoiceBroker({"security_map": raw["security_map"]}, None)
+        for sym in raw["symbols"]:
+            exchange, token, tradingsymbol = broker._resolve(sym)
+            self.assertEqual(exchange, "NSE")
+            self.assertTrue(token.isdigit(), f"{sym} token is not numeric: {token}")
+            self.assertTrue(tradingsymbol.endswith("-EQ"),
+                            f"{sym} tradingsymbol missing -EQ suffix: {tradingsymbol}")
+        # Every configured token maps back to a configured symbol.
+        self.assertEqual(len(broker._token_to_symbol), len(raw["symbols"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,8 +32,7 @@ from ox.agents.capital_allocator import CapitalAllocator
 from ox.agents.orchestrator import ExecutionRouter
 from ox.brokers import BrokerError, DhanBroker
 from ox.core import DB
-from test_live_broker_contract import _AttrDict, _FakeSession, _LTP_PAYLOAD
-from test_router_live import MustNotTouch, buy, close, make_agent
+from support import _AttrDict, _FakeSession, _LTP_PAYLOAD, MustNotTouch, buy, close, make_agent
 
 
 def make_equity_harness(monkeypatch, tmp_path):

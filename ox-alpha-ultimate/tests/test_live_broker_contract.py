@@ -33,92 +33,9 @@ from ox.brokers import BrokerError, DhanBroker, OrderError, RateLimitError
 from ox.compliance import Compliance
 from ox.core import DB, SecurityError
 from ox.oms import OMS
+from support import _AttrDict, _FakeResponse, _FakeSession, _LTP_PAYLOAD, _StubRisk
 
 _AUDIT_KEY = "live-contract-audit-key-at-least-thirty-two-chars"
-_LTP_PAYLOAD = {"data": {"NSE_EQ": {"1333": {"last_price": 1100.0}}}}
-
-
-class _FakeResponse:
-    def __init__(self, status=200, payload=None, reason="OK", headers=None, text=None):
-        self.status_code = status
-        self._payload = payload
-        self.reason = reason
-        self.headers = headers or {}
-        self._text = text
-
-    @property
-    def ok(self) -> bool:
-        return 200 <= self.status_code < 300
-
-    def json(self):
-        if self._text is not None:
-            raise ValueError("no json body")
-        return self._payload
-
-
-class _FakeSession:
-    """Scripted HTTP transport: responses keyed by (method, path), call log kept."""
-
-    def __init__(self):
-        self.responses: dict[tuple[str, str], deque] = {}
-        self.calls: list[tuple[str, str, dict]] = []
-
-    def script(self, method, path, *, status=200, payload=None, exc=None, headers=None, text=None):
-        self.responses.setdefault((method, path), deque()).append(
-            dict(status=status, payload=payload, exc=exc, headers=headers, text=text)
-        )
-
-    def request(self, method, url, headers=None, json=None, params=None, timeout=None):
-        path = url.replace("https://api.dhan.co/v2", "")
-        self.calls.append((method, path, json or {}))
-        queue = self.responses.get((method, path))
-        if not queue:
-            raise AssertionError(f"unscripted HTTP call: {method} {path}")
-        entry = queue.popleft()
-        if entry["exc"] is not None:
-            raise entry["exc"]
-        return _FakeResponse(entry["status"], entry["payload"], headers=entry["headers"], text=entry["text"])
-
-    def post(self, url, data=None, headers=None, timeout=None):
-        """Noren-style form POST used by ChoiceBroker: jData=<json>&jKey=<token>."""
-        path = url.replace("https://api.shoonya.com/NorenWClientTP/", "/")
-        body: dict = {}
-        jkey = None
-        if data:
-            for part in str(data).split("&"):
-                if part.startswith("jData="):
-                    body = json.loads(part[len("jData="):])
-                elif part.startswith("jKey="):
-                    jkey = part[len("jKey="):]
-        self.calls.append(("POST", path, {"jData": body, "jKey": jkey}))
-        queue = self.responses.get(("POST", path))
-        if not queue:
-            raise AssertionError(f"unscripted HTTP call: POST {path}")
-        entry = queue.popleft()
-        if entry["exc"] is not None:
-            raise entry["exc"]
-        return _FakeResponse(entry["status"], entry["payload"], headers=entry["headers"], text=entry["text"])
-
-    def call_paths(self) -> list[tuple[str, str]]:
-        return [(method, path) for method, path, _ in self.calls]
-
-
-class _AttrDict(dict):
-    """Real config objects expose keys as attributes (Cfg.root); mirror that."""
-
-    def __getattr__(self, item):
-        try:
-            return self[item]
-        except KeyError as exc:
-            raise AttributeError(item) from exc
-
-
-class _StubRisk:
-    def __init__(self):
-        self.closed_pnls: list[float] = []
-
-    def on_trade_close(self, pnl: float) -> None:
-        self.closed_pnls.append(float(pnl))
 
 
 class LiveBrokerContractTests(unittest.TestCase):

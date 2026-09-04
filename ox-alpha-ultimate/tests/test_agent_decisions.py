@@ -403,13 +403,14 @@ def test_blocks_on_negative_news(tmp_path, fake_time):
     assert decisions(agent.db) == [("BLOCK", "NEGATIVE_NEWS")]
 
 
-def test_blocks_when_bracket_unavailable(tmp_path, fake_time):
+def test_blocks_when_bracket_unavailable(tmp_path, fake_time, monkeypatch):
     agent = build_agent(tmp_path)
-    # _bracket_from_supporters raising must be caught, never propagate.
+    # The bracket builder (now the pure ox.decision module) raising must be
+    # caught, never propagate.
     def broken_bracket(frame, entry_price, supporters):
         raise ValueError("A positive ensemble vote has no approved entry strategy")
 
-    agent._bracket_from_supporters = broken_bracket
+    monkeypatch.setattr("ox.agent.bracket_from_supporters", broken_bracket)
     agent._act("TCS", 100.0, make_frame(), votes=1.5, supporters=entry_supporter())
     assert decisions(agent.db) == [("BLOCK", "ENTRY_BRACKET_UNAVAILABLE")]
     assert agent.oms.opened == []

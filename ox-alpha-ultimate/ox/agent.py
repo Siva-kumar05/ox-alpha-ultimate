@@ -18,6 +18,7 @@ from .brain import Brain
 from .brokers import BrokerError, MarketDataError, OrderError, RateLimitError, make_broker
 from .compliance import Compliance
 from .core import Cfg, DB, LOG, hhmm, iso, now, setup_log
+from .decision import adjust_votes_by_regime, bracket_from_supporters, clamp_quantity, quorum_verdict
 from .features import REG, self_test
 from .ml_pipeline import EnsembleMetaLearner, OnlineLearner
 from .regime import RegimeDetector, MarketRegime
@@ -435,47 +436,6 @@ class Agent:
         votes, _ = self._vote_details(frame)
         return votes
 
-    @staticmethod
-    def _bracket_from_supporters(
-        frame: pd.DataFrame,
-        entry_price: float,
-        supporters: list[tuple[str, dict, float]],
-    ) -> tuple[float, float, dict]:
-        """Build a bracket from the parameters of strategies that fired.
-
-        This mirrors the backtester’s ATR/minimum-distance model.  When more
-        than one approved strategy supports the entry, its ``sl_atr`` and
-        ``tp_atr`` values are score-weighted rather than overwritten by a
-        hard-coded ensemble default.
-        """
-        if not supporters:
-            raise ValueError("A positive ensemble vote has no approved entry strategy")
-        high = frame["h"].to_numpy(dtype=float)
-        low = frame["l"].to_numpy(dtype=float)
-        close = frame["c"].to_numpy(dtype=float)
-        atr_series = np.asarray(REG["atr"](high, low, close), dtype=float)
-        current_atr = float(atr_series[-1]) if len(atr_series) else float("nan")
-        if not math.isfinite(current_atr) or current_atr <= 0:
-            current_atr = max(float(high[-1] - low[-1]), entry_price * 0.005)
-        weights = np.asarray([weight for _, _, weight in supporters], dtype=float)
-        total_weight = float(weights.sum())
-        if not math.isfinite(total_weight) or total_weight <= 0:
-            raise ValueError("Approved entry-strategy weights are invalid")
-        stop_atr = float(sum(params["sl_atr"] * weight for _, params, weight in supporters) / total_weight)
-        target_atr = float(sum(params["tp_atr"] * weight for _, params, weight in supporters) / total_weight)
-        atr_distance = max(current_atr, entry_price * 0.005)
-        stop_distance = max(atr_distance * stop_atr, entry_price * 0.002)
-        target_distance = max(atr_distance * target_atr, entry_price * 0.004)
-        supporters_detail = {
-            "strategy_ids": [strategy_id for strategy_id, _, _ in supporters],
-            "sl_atr": round(stop_atr, 4),
-            "tp_atr": round(target_atr, 4),
-            "atr": round(current_atr, 4),
-            "stop_distance": round(stop_distance, 4),
-            "target_distance": round(target_distance, 4),
-        }
-        return entry_price - stop_distance, entry_price + target_distance, supporters_detail
-
     def tick_once(self) -> None:
         if self.kill_path.exists():
             self.oms.kill_switch("KILL.flag detected")
@@ -542,16 +502,9 @@ class Agent:
 
             votes, supporters = self._vote_details(frame)
 
-            # Regime-conditioned vote adjustment
+            # Regime-conditioned vote adjustment (pure math in ox/decision)
             regime_weights = self.regime_detector.regime_weights()
-            if supporters:
-                for i, (sid, params, weight) in enumerate(supporters):
-                    template = sid.split("_")[0] if "_" in sid else sid
-                    regime_mult = regime_weights.get(template, 1.0)
-                    supporters[i] = (sid, params, weight * regime_mult)
-                votes *= np.mean([regime_weights.get(
-                    s[0].split("_")[0] if "_" in s[0] else s[0], 1.0)
-                    for s in supporters])
+            votes, supporters = adjust_votes_by_regime(votes, supporters, regime_weights)
 
             # Entries are stopped near close
             if current_time >= self.cfg["entry_cutoff"] and votes > 0:
@@ -611,13 +564,15 @@ class Agent:
         # risk-sized entry when several strategies are approved (C6).
         total_weight = sum(min(max(float(entry[3]), 0.25), 3.0) for entry in self.strategies)
         min_fraction = float(self.cfg["execution"].get("min_vote_fraction", 0.0))
-        required = min_fraction * total_weight
-        if total_weight > 0 and votes < required:
-            self._record_decision(sym, "BLOCK", "ENSEMBLE_QUORUM", {"votes": round(votes, 3), "required": round(required, 3)})
-            return
         min_support = int(self.cfg["execution"].get("min_support_strategies", 1))
-        if len(supporters or []) < min_support:
-            self._record_decision(sym, "BLOCK", "SUPPORT_QUORUM", {"supporters": len(supporters or []), "required": min_support})
+        allowed, quorum_reason, required = quorum_verdict(
+            votes, total_weight, min_fraction, supporters, min_support
+        )
+        if not allowed:
+            if quorum_reason == "ENSEMBLE_QUORUM":
+                self._record_decision(sym, "BLOCK", quorum_reason, {"votes": round(votes, 3), "required": round(required, 3)})
+            else:
+                self._record_decision(sym, "BLOCK", quorum_reason, {"supporters": len(supporters or []), "required": min_support})
             return
 
         optimism, sentiment = self.news.get_optimism_score(self.db, sym)
@@ -627,7 +582,7 @@ class Agent:
             return
         bracket_detail = {"strategy_ids": [], "sl_atr": 1.5, "tp_atr": 2.0, "atr": 0.01, "stop_distance": 0.01, "target_distance": 0.01}
         try:
-            stop, target, bracket_detail = self._bracket_from_supporters(frame, ltp, supporters or [])
+            stop, target, bracket_detail = bracket_from_supporters(frame, ltp, supporters or [])
         except (KeyError, TypeError, ValueError) as exc:
             self._record_decision(sym, "BLOCK", "ENTRY_BRACKET_UNAVAILABLE", {"error": exc.__class__.__name__})
             return
@@ -663,16 +618,10 @@ class Agent:
             except Exception as exc:  # noqa: BLE001 - sizing must never abort the decision path
                 LOG.debug("Leverage overlay unavailable for %s: %s", sym, exc.__class__.__name__)
         # Clamp the scaled quantity to the hard caps the risk gate enforces.
-        risk_limits = self.cfg["risk"]
-        notional_cap_qty = int(float(risk_limits["max_notional_per_trade"]) / ltp)
-        current_gross = self.risk.gross_exposure(list(self.oms.positions.values()))
-        if requested_leverage > 0:
-            exposure_headroom_qty = int(
-                (float(risk_limits["max_gross_exposure"]) - current_gross) / (ltp * requested_leverage)
-            )
-        else:
-            exposure_headroom_qty = notional_cap_qty
-        clamped_quantity = min(quantity, notional_cap_qty, exposure_headroom_qty)
+        clamped_quantity, notional_cap_qty, exposure_headroom_qty = clamp_quantity(
+            quantity, ltp, requested_leverage, self.cfg["risk"],
+            self.risk.gross_exposure(list(self.oms.positions.values())),
+        )
         if clamped_quantity <= 0:
             self._record_decision(sym, "BLOCK", "RISK_CAP_CLAMPED", {
                 "quantity": quantity,

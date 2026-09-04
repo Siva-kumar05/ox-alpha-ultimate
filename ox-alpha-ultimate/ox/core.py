@@ -129,9 +129,8 @@ class Cfg:
             raise ConfigError("mode must be 'paper' or 'live'")
         if platform not in {"paper", "dhan", "choice"}:
             raise ConfigError(
-                "platform must be 'paper', 'dhan', or 'choice' (groww/tradingview are "
-                "not-wired scaffolds that fail closed; live crypto runs through the "
-                "promax orchestrator with config_promax.yaml, see docs/PROMAX_AGENTS.md)"
+                "platform must be 'paper', 'dhan', or 'choice' (live crypto runs through "
+                "the promax orchestrator with config_promax.yaml, see docs/PROMAX_AGENTS.md)"
             )
         if mode == "live" and platform not in {"dhan", "choice"}:
             raise ConfigError(
