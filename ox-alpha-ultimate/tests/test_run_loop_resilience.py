@@ -245,6 +245,15 @@ class RunLoopResilienceTests(unittest.TestCase):
         for attr in ("health_checker", "backup_manager", "config_watcher",
                      "secret_manager", "shutdown_manager"):
             setattr(agent, attr, None)
+        # run_forever schedules nightly_training at the hardcoded 18:00 IST
+        # boundary and fires it on the first tick past that hour.  With the
+        # smoke-relaxed promotion gates (min_trades 1 / promote_score -9.0)
+        # that retrain PROMOTES strategies mid-test after 18:00 IST, so these
+        # broker-resilience contracts only ever passed before 18:00 - the
+        # agent would start trading against an unscripted session.  Training
+        # is not part of the resilience contract under test (auto_train_on_boot
+        # is False here), so disable the scheduled retrain for this agent.
+        agent.nightly_training = lambda: None  # type: ignore[method-assign]
         agent.broker.session = session  # scripted transport, everything else stays real
         session.script("GET", "/fundlimit", payload={})
         session.script("GET", "/positions", payload=[])  # oms.restore() reconcile

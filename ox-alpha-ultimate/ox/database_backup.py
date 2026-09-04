@@ -159,7 +159,20 @@ class DatabaseBackupManager:
         )
         
         start_time = time.time()
-        
+
+        # WAL databases hold committed frames in -wal until a checkpoint;
+        # run a passive checkpoint first so the snapshot's tail is settled
+        # (sqlite's online backup API is already crash-consistent, this also
+        # shrinks the WAL before the copy).
+        try:
+            checkpoint_conn = sqlite3.connect(self.db_path)
+            try:
+                checkpoint_conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            finally:
+                checkpoint_conn.close()
+        except sqlite3.Error as exc:
+            LOG.warning(f"wal checkpoint before backup skipped: {exc}")
+
         try:
             # Use SQLite backup API for consistent backup
             if self.compress:
@@ -245,29 +258,35 @@ class DatabaseBackupManager:
                             shutil.copyfileobj(f_in, f_out)
                     
                     conn = sqlite3.connect(temp_path)
-                    conn.execute("PRAGMA integrity_check")
-                    conn.close()
-                    return True
+                    try:
+                        result = conn.execute("PRAGMA integrity_check").fetchone()
+                        return bool(result) and str(result[0]).strip().lower() == "ok"
+                    finally:
+                        conn.close()
                 finally:
                     if temp_path.exists():
                         temp_path.unlink()
             else:
                 conn = sqlite3.connect(backup_path)
-                conn.execute("PRAGMA integrity_check")
-                conn.close()
-                return True
+                try:
+                    result = conn.execute("PRAGMA integrity_check").fetchone()
+                    return bool(result) and str(result[0]).strip().lower() == "ok"
+                finally:
+                    conn.close()
         except Exception as e:
             LOG.error(f"Backup verification failed: {e}")
             return False
     
     def _cleanup_old_backups(self):
         """Clean up old backups based on retention policy."""
-        cutoff = datetime.now() - timedelta(days=self.retention_days)
-        
+        # Timestamps are written by core.iso() (tz-aware, IST); compare against
+        # a cutoff in the SAME tz as each entry - a naive datetime.now() versus
+        # an aware fromisoformat() raises TypeError on every cleanup run.
         # Remove by age
         to_remove = []
         for backup in self._backup_history:
             backup_time = datetime.fromisoformat(backup.timestamp)
+            cutoff = datetime.now(backup_time.tzinfo) - timedelta(days=self.retention_days)
             if backup_time < cutoff:
                 to_remove.append(backup)
         

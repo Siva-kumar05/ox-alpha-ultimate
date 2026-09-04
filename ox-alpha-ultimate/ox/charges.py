@@ -1,7 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
 
-import numpy as np
 
 class ChargesCalculator:
     """
@@ -85,78 +83,3 @@ class ChargesCalculator:
             target_price += (deficit / qty) + 0.05
 
         return round(target_price, 2)
-
-
-@dataclass
-class SlippageEstimate:
-    """Dynamic slippage estimate based on market microstructure."""
-    base_slippage_bps: float
-    spread_cost_bps: float
-    market_impact_bps: float
-    total_slippage_bps: float
-    total_slippage_pct: float
-
-
-class DynamicSlippageModel:
-    """Dynamic slippage model based on spread, depth, order size, and volatility."""
-    
-    def __init__(self, cfg):
-        self.cfg = cfg
-        slippage_cfg = cfg.get("slippage_model", {})
-        self.base_slippage_bps = slippage_cfg.get("base_slippage_bps", 3.0)
-        self.spread_weight = slippage_cfg.get("spread_weight", 0.5)
-        self.depth_weight = slippage_cfg.get("depth_weight", 0.3)
-        self.volume_weight = slippage_cfg.get("volume_weight", 0.2)
-        self.volatility_weight = slippage_cfg.get("volatility_weight", 0.1)
-        self.max_slippage_bps = slippage_cfg.get("max_slippage_bps", 50.0)
-        self.min_slippage_bps = slippage_cfg.get("min_slippage_bps", 0.5)
-        
-    def estimate_slippage(
-        self,
-        symbol: str,
-        side: str,
-        quantity: int,
-        price: float,
-        bid: float,
-        ask: float,
-        bid_depth: float,
-        ask_depth: float,
-        adv: float,  # Average daily volume
-        volatility: float
-    ) -> SlippageEstimate:
-        """Estimate slippage based on market microstructure."""
-        
-        # Spread cost (half spread for market orders)
-        spread_bps = (ask - bid) / max((ask + bid) / 2, 1e-9) * 10000
-        spread_cost = spread_bps * self.spread_weight * 0.5
-        
-        # Market impact using square-root law
-        participation = min(quantity * price / max(adv, 1), 0.25)
-        market_impact = volatility * 100 * np.sqrt(participation) * self.volume_weight
-        
-        # Depth impact - larger orders relative to depth cause more slippage
-        relevant_depth = bid_depth if side == "SELL" else ask_depth
-        depth_ratio = quantity * price / max(relevant_depth, 1)
-        depth_impact = min(depth_ratio * 100, 20) * self.depth_weight
-        
-        # Volatility impact
-        vol_impact = volatility * 100 * self.volatility_weight
-        
-        # Total slippage
-        total_bps = self.base_slippage_bps + spread_cost + market_impact + depth_impact + vol_impact
-        total_bps = float(np.clip(total_bps, self.min_slippage_bps, self.max_slippage_bps))
-        
-        return SlippageEstimate(
-            base_slippage_bps=self.base_slippage_bps,
-            spread_cost_bps=spread_cost,
-            market_impact_bps=market_impact,
-            total_slippage_bps=total_bps,
-            total_slippage_pct=total_bps / 10000.0
-        )
-    
-    def get_slippage_price(self, side: str, price: float, slippage: SlippageEstimate) -> float:
-        """Calculate execution price with slippage."""
-        if side == "BUY":
-            return price * (1 + slippage.total_slippage_pct)
-        else:
-            return price * (1 - slippage.total_slippage_pct)

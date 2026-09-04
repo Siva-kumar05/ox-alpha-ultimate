@@ -1,6 +1,6 @@
 # ox package initialization
 
-from .charges import ChargesCalculator, DynamicSlippageModel, SlippageEstimate
+from .charges import ChargesCalculator
 from .risk import RiskManager, Metrics, CovarianceMatrix, PortfolioState
 from .position_sizing import PositionSizer, OrderFlowMetrics, SizingResult
 from .stop_manager import StopManager, MultiStopManager, StopType, StopConfig, StopState
@@ -33,7 +33,7 @@ from .compliance_reporting import ComplianceReporter, ComplianceReport, ReportTy
 
 __all__ = [
     # Core
-    "ChargesCalculator", "DynamicSlippageModel", "SlippageEstimate",
+    "ChargesCalculator",
     "RiskManager", "Metrics", "CovarianceMatrix", "PortfolioState",
     "PositionSizer", "OrderFlowMetrics", "SizingResult",
     "StopManager", "MultiStopManager", "StopType", "StopConfig", "StopState",

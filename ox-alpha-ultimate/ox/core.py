@@ -139,8 +139,13 @@ class Cfg:
             )
         if mode == "live" and os.getenv("OX_LIVE_EXECUTION_APPROVED", "") != "YES_I_UNDERSTAND_LIVE_TRADING":
             raise ConfigError(
-                "live mode requires explicit operator affirmation in the host environment: "
-                "OX_LIVE_EXECUTION_APPROVED=YES_I_UNDERSTAND_LIVE_TRADING"
+                "live mode requires explicit operator affirmation "
+                "(OX_LIVE_EXECUTION_APPROVED=YES_I_UNDERSTAND_LIVE_TRADING).  "
+                "That flag is deliberately launcher-scoped so live mode never "
+                "starts through a bare 'python run.py': run 'bash "
+                "scripts/setup-live.sh' once to store keys in ~/.ox_secrets.env, "
+                "then launch ONLY via 'bash scripts/live.sh <venue>' "
+                "(dhan | choice | binance)."
             )
 
         symbols = self.d.get("symbols")

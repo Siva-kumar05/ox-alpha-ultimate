@@ -1,5 +1,40 @@
 # Review changelog — this pass
 
+## Root-fix sweep: affirmation-gate UX + capital-safety/hygiene defects (2026-09-04)
+
+Message/UX and contained root fixes from the FLAWS_AND_GAPS adjudication and a
+bare-`python run.py` operator stumble on the week-1 live config:
+
+- **Affirmation-gate UX (ox/core.py, ox/preflight.py):** the live-mode
+  ConfigError now names the supported ceremony (setup-live.sh once, then
+  launch only via `bash scripts/live.sh <venue>`; the flag is launcher-scoped
+  so a bare `python run.py` never starts live). `run.py preflight` on a
+  `mode: live` config emits a `launch gate` WARN with the same guidance.
+  Message-only - gate semantics, exit codes, and launch behavior unchanged.
+- **Kill-switch orphan guidance (ox/oms.py):** when an entry was still in
+  flight at kill time, a partial fill may have orphaned a broker position
+  that never reached local state. The kill now logs that case loudly and the
+  KILL.flag body records the reconcile-before-restart step durably.
+- **Backup correctness (ox/database_backup.py):** passive WAL checkpoint
+  before the snapshot; `_verify_backup` now actually reads the
+  `PRAGMA integrity_check` result instead of discarding it (verification
+  could never fail before); fixed a TypeError in `_cleanup_old_backups`
+  (aware vs naive datetime) that crashed every real `create_backup()`, and
+  connection leaks on the corrupt-backup path. New regression tests.
+- **Per-frame ICIR honesty (ox/brain.py):** a single-frame `Backtester.run()`
+  reports `icir: NaN` (ICIR is only meaningful after `aggregate()` pools
+  frames' ICs) instead of a misleading `0.0`.
+- **Dead slippage code removed (ox/charges.py, ox/__init__.py, configs):**
+  `DynamicSlippageModel`/`SlippageEstimate` were exported and configured in
+  config.yaml but never instantiated anywhere (backtests lack the depth feed
+  they need). Removed the classes, exports, and the inert config blocks.
+- **Resilience-suite time-of-day bug (tests/test_run_loop_resilience.py):**
+  the run loop schedules `nightly_training()` at the hardcoded 18:00 IST
+  boundary; under the smoke-relaxed promotion gates that retrain promoted
+  strategies mid-test, so the broker-resilience contracts only passed before
+  18:00 IST. The harness now disables the scheduled retrain per agent
+  (training is not part of the resilience contract under test).
+
 ## Audit sweep: incremental history fetch + compliance cadence wiring (2026-09-04)
 
 Root-fix pass for the two genuine (b)-tagged defects from the FLAWS_AND_GAPS

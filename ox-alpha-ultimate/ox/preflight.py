@@ -272,6 +272,14 @@ def evaluate(root: Path, secrets_file: Path, http: HTTP,
                 checks.append(_one(venue, "config mode/platform", PASS,
                                    f"platform {platform} valid for {venue}"))
 
+        if mode == "live":
+            checks.append(_one(venue, "launch gate", WARN,
+                               f"mode: live config - launch ONLY via "
+                               f"'bash scripts/live.sh {venue}'; the "
+                               "OX_LIVE_EXECUTION_APPROVED affirmation flag is "
+                               "set only inside that launcher, so a bare "
+                               "'python run.py' refuses to start (by design)"))
+
         mapping = cfg.get("security_map")
         symbols = {str(s).upper() for s in cfg.get("symbols", []) or []}
         if live_platform is not None and isinstance(mapping, dict):

@@ -271,7 +271,10 @@ class OMS:
         compliance halt is a durable stop, and the flag is what makes a
         restarted agent refuse to boot until an operator reconciles.  Without
         it, a halt that had no open position or pending order would leave no
-        marker and the agent could silently restart.
+        marker and the agent could silently restart.  When an entry was still
+        in flight at kill time the flag body records the reconciliation step
+        explicitly, because a partial fill may have orphaned a broker
+        position that never reached local state.
         """
         with self.lock:
             self.live = False
@@ -279,6 +282,14 @@ class OMS:
             pending_orders = dict(self.inflight_orders)
         LOG.critical("OMS KILL SWITCH: %s", reason)
         self.db.audit("KILL_SWITCH", {"reason": reason[:200], "positions": symbols, "pending_orders": sorted(pending_orders)})
+        if pending_orders:
+            # An entry still in flight at kill time may have partially filled
+            # before cancellation: that fill never reached local state, so it
+            # is an untracked broker position.  Surface it loudly here and in
+            # the KILL.flag body so the restart is never silent.
+            LOG.critical("KILL while uncertain entry in flight (%s): any partial fill is an "
+                         "untracked broker position - reconcile the broker book before restart",
+                         sorted(pending_orders))
         failures = []
         for sym, order_id in pending_orders.items():
             try:
@@ -295,7 +306,12 @@ class OMS:
                 failures.append(f"{sym}: {exc}")
                 LOG.critical("Unable to confirm emergency exit for %s: %s", sym, exc)
         kill_path = Path(self.cfg.root) / "KILL.flag"
-        kill_path.write_text(f"HALTED: {reason} at {iso()}\n", encoding="utf-8")
+        kill_path.write_text(
+            f"HALTED: {reason} at {iso()}\n"
+            "Before restart: reconcile the broker book - no untracked position may "
+            "remain (flatten any manually), then delete this flag.\n",
+            encoding="utf-8",
+        )
         message = reason if not failures else f"{reason}; unconfirmed exits: {' | '.join(failures)}"
         self.db.ex("INSERT INTO events(kind,msg,ts)VALUES('KILL',?,?)", (message, iso()))
 

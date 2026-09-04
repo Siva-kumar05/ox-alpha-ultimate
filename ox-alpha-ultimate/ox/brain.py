@@ -245,7 +245,10 @@ class Backtester:
             "trades": len(trades),
             "pf": float(gross_profit / max(gross_loss, 1e-9)),
             "ret": float(equity[-1] - 1.0),
-            "icir": 0.0,
+            # ICIR is only meaningful after aggregate() pools several frames'
+            # ICs; report NaN (not a misleading 0.0) for a single frame so no
+            # consumer can mistake run() output for a real ICIR.
+            "icir": float("nan"),
             "frame_ic": frame_ic,
             "win_rate": float(sum(value > 0 for value in trades) / len(trades)) if trades else 0.0,
             "cost_drag": float(total_cost_ratio),

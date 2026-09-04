@@ -148,14 +148,6 @@ advanced_risk:
   rebalance_threshold: 0.05
   min_correlation: -0.9
   max_correlation: 0.9
-slippage_model:
-  base_slippage_bps: 3.0
-  spread_weight: 0.5
-  depth_weight: 0.3
-  volume_weight: 0.2
-  volatility_weight: 0.1
-  max_slippage_bps: 50.0
-  min_slippage_bps: 0.5
 stop_management:
   default_type: "atr_trailing"
   default_atr_mult: 2.0
