@@ -96,6 +96,20 @@ bash scripts/setup-live.sh   # prompts: Dhan client ID/token, machine public IP,
                              # Binance key/secret, Choice Shoonya keys, audit key
 ```
 
+**Run the zero-credential check FIRST** - before entering any keys, on any
+new machine:
+
+```bash
+bash scripts/live.sh preflight    # config validity, deps, git drift, gateway
+                                  # reachability, egress IP, OneDrive warning -
+                                  # no keys needed, offline-safe (SKIP not FAIL)
+```
+
+It prints PASS/WARN/FAIL/SKIP per check with a per-venue verdict and exits 1
+when anything FAILs.  Missing keys are reported as what `setup-live.sh` will
+prompt for - the check itself never reads a key, and keys belong ONLY in
+`~/.ox_secrets.env` (never paste API keys into chat or email).
+
 Launch with one command - the launcher sources the secrets file, flips the
 right config to `mode: live`, and runs the venue:
 
@@ -184,7 +198,8 @@ machine-level rules matter more than the venue choice:
    cd ~/ox-alpha-src/ox-alpha-ultimate
    python -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
-   bash scripts/setup-live.sh
+   bash scripts/live.sh preflight   # zero-credential check FIRST (see Live Launch)
+   bash scripts/setup-live.sh      # then enter keys once, hidden input
    ```
 
 2. **Keep the machine awake and online the whole session** (09:15-15:30 IST)

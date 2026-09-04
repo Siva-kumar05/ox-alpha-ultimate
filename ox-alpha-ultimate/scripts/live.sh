@@ -3,6 +3,7 @@
 #
 #   bash scripts/live.sh live-test      # Dhan connectivity/credential check (safe, exits 0/2)
 #   bash scripts/live.sh verify-all     # login-only rehearsal: every venue with keys (safe, no orders)
+#   bash scripts/live.sh preflight      # zero-credential readiness check (safe, offline-safe)
 #   bash scripts/live.sh dhan           # legacy NSE intraday agent on live Dhan (config.yaml)
 #   bash scripts/live.sh choice         # legacy NSE intraday agent on live Choice India (config_choice.yaml)
 #   bash scripts/live.sh binance [secs] # promax orchestrator: Dhan equity + Binance live crypto
@@ -19,7 +20,7 @@ SECRETS="${OX_SECRETS_FILE:-$HOME/.ox_secrets.env}"
 PYTHON="${PYTHON:-python}"
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 require() {
@@ -88,6 +89,12 @@ case "$cmd" in
       load_secrets
     fi
     cd "$ROOT" && exec "$PYTHON" run.py venue-check
+    ;;
+  preflight)
+    # Zero-credential readiness: no secrets loaded, no config flips, no
+    # network required (probes degrade to SKIP offline).  Run this FIRST,
+    # before entering any keys.  Exit 1 when a check FAILs.
+    cd "$ROOT" && exec "$PYTHON" run.py preflight
     ;;
   track)
     load_secrets

@@ -469,6 +469,12 @@ def main() -> None:
         run_smoketest()
         return
 
+    if command == "preflight":
+        # Zero-credential readiness: no keys, no config flips, no network
+        # requirement.  Exit 1 when any check FAILs (WARN/SKIP never fail).
+        from ox.preflight import main as _preflight_main
+        raise SystemExit(_preflight_main(sys.argv[2:]))
+
     if command == "venue-check":
         from ox.venue_check import check_venue
         import yaml
@@ -581,7 +587,7 @@ def main() -> None:
     else:
         raise SystemExit(
             "Usage: python run.py [run [config.yaml]|train|status [config.yaml]|approve|kill|smoketest|track-record]\n"
-            "       python run.py [live-test <seconds>|validate-online]\n"
+            "       python run.py [preflight|live-test <seconds>|validate-online]\n"
             "       python run.py [promax [seconds]|promax-smoke|promax-status|"
             "promax-kill|intents [STATUS]|ok <iid>|deny <iid>]"
         )
