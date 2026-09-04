@@ -1,5 +1,46 @@
 # Review changelog — this pass
 
+## Secret-on-argv hardening + PowerShell-safe launcher (2026-09-04)
+
+Root-cause hardening after a live Dhan JWT was pasted onto the command line
+and the documented `bash scripts/live.sh` path failed in PowerShell (its
+`bash` resolves to the WSL relay):
+
+- **scripts/live.sh:** now accepts ONLY the whitelisted verbs
+  (dhan|choice|binance|live-test|verify-all|preflight|track|status|paper|
+  promax-smoke).  Zero stray arguments are allowed except one optional
+  integer for binance/live-test, and unknown verbs are checked for
+  token-like shapes (JWT, KEY=value, long high-entropy) - any refusal prints
+  the hygiene message (regenerate + clear history; tokens only via
+  setup-live.sh hidden prompts) and exits 2 before any command branch runs.
+- **scripts/setup-live.sh:** refuses any argument - credentials are entered
+  only at the hidden prompts.
+- **start-live.cmd (new):** Windows launcher that locates real Git Bash
+  (Program Files\Git, with a clear error if absent or WSL-only), accepts at
+  most one whitelisted verb, refuses credential-like arguments with the same
+  hygiene message, and execs `scripts/live.sh <verb>`.
+- **START_DAILY.ps1:** exports the launcher-scoped
+  OX_LIVE_EXECUTION_APPROVED for the session (it was missing, so the masked
+  daily-token flow would hit the live-config affirmation gate).
+- Launcher/UX only - no order, training, sizing, or gate semantics changed.
+
+## Pattern-analysis tool + runbook status-command fix (2026-09-04)
+
+- **scripts/analyze_patterns.py:** read-only offline analysis of the latest
+  training run. Joins `strategies` with the newest OOS row of `backtests`
+  (the table `Brain.evaluate` writes each candidate's pooled OOS stats to)
+  and prints a per-candidate table (sid -> pooled OOS trades / ret / pf /
+  score / signal stability / rejection cause) grouped by status, a score
+  histogram, and the Scorer gate breakdown (cleared min_trades; rejected
+  ret<=0/pf<=1.0; rejected stability; scored >= promote_score). Opens the DB
+  read-only (`mode=ro`), never touches a broker or the network, and loads
+  the config with plain YAML - no `Cfg`, so no OX_LIVE_EXECUTION_APPROVED
+  is ever required. Self-contained offline test added.
+- **Runbook fix (LIVE_ON_PC.md):** bare `python run.py status` refuses to
+  run against a `mode: live` config at the affirmation gate (the flag is
+  launcher-scoped). All runbook occurrences corrected to
+  `bash scripts/live.sh status`, which loads the gate.
+
 ## Root-fix sweep: affirmation-gate UX + capital-safety/hygiene defects (2026-09-04)
 
 Message/UX and contained root fixes from the FLAWS_AND_GAPS adjudication and a

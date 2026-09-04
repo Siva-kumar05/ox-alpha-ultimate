@@ -65,6 +65,10 @@ catch {
 $env:DHAN_CLIENT_ID    = $ClientId
 $env:DHAN_TOKEN        = $Token
 $env:DHAN_ACCESS_TOKEN = $Token
+# Launcher-scoped affirmation required by the live-config gate (ox/core.py);
+# set only for this session, never persisted, so a bare `python run.py` in
+# another window still refuses to start live.
+$env:OX_LIVE_EXECUTION_APPROVED = 'YES_I_UNDERSTAND_LIVE_TRADING'
 
 # ── 5. Static-IP sanity, then launch ────────────────────────────────────────
 python verify_ip.py

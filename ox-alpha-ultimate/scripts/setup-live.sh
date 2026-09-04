@@ -11,6 +11,15 @@ set -euo pipefail
 
 SECRETS="${OX_SECRETS_FILE:-$HOME/.ox_secrets.env}"
 
+# Credentials are entered at the hidden prompts below - never on argv.
+if [ "$#" -gt 0 ]; then
+  echo "ERROR: setup-live.sh takes no arguments - credentials are entered at the" >&2
+  echo "hidden prompts.  If you pasted a key or token here: REGENERATE it and" >&2
+  echo "clear your history.  Tokens belong only in ~/.ox_secrets.env, never on the" >&2
+  echo "command line, in files, or in chat." >&2
+  exit 2
+fi
+
 echo "============================================================"
 echo " OX-ALPHA live credentials setup"
 echo " Writes: $SECRETS  (permissions 600)"

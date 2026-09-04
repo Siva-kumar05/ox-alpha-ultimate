@@ -45,12 +45,54 @@ load_secrets() {
   export OX_LIVE_EXECUTION_APPROVED='YES_I_UNDERSTAND_LIVE_TRADING'
 }
 
+_hygiene_msg() {
+  cat >&2 <<'MSG'
+ERROR: live.sh accepts ONLY a whitelisted command (dhan|choice|binance|live-test|
+verify-all|preflight|track|status|paper|promax-smoke) and never credentials.
+If you pasted a token or API key here: REGENERATE it (Dhan web console) and clear
+your shell history - tokens belong ONLY in ~/.ox_secrets.env via the hidden
+prompts of:
+    bash scripts/setup-live.sh     (or  start-live.cmd  on Windows)
+Never paste keys/tokens onto the command line, into files, or into chat.
+MSG
+}
+
+_looks_like_secret() {
+  # JWT/3-dot token, KEY=value form, or long high-entropy blob.
+  case "$1" in
+    *=*) return 0 ;;
+    *.*.*) return 0 ;;
+  esac
+  [ "${#1}" -gt 40 ] && return 0
+  return 1
+}
+
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
   usage
   exit 2
 fi
 shift || true
+
+# Argument guard: only binance/live-test accept ONE optional integer (seconds);
+# every other verb takes zero arguments.  A token pasted onto the command line
+# is refused here, before any command branch can run or read secrets.
+if [ "$#" -gt 0 ]; then
+  case "$cmd" in
+    binance|live-test)
+      if [ "$#" -eq 1 ] && [[ "$1" =~ ^[0-9]+$ ]]; then
+        :  # allowed numeric seconds argument
+      else
+        _hygiene_msg
+        exit 2
+      fi
+      ;;
+    *)
+      _hygiene_msg
+      exit 2
+      ;;
+  esac
+fi
 
 case "$cmd" in
   dhan)
@@ -122,8 +164,12 @@ case "$cmd" in
     cd "$ROOT" && OX_PROMAX_AUTO_APPROVE=1 exec "$PYTHON" run.py promax-smoke
     ;;
   *)
-    echo "Unknown command: $cmd" >&2
-    usage
+    if _looks_like_secret "$cmd"; then
+      _hygiene_msg
+    else
+      echo "Unknown command: $cmd" >&2
+      usage
+    fi
     exit 2
     ;;
 esac

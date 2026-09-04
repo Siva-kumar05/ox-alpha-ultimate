@@ -286,9 +286,22 @@ Chaturthi — markets shut**) → depth-feed connect → broker reconcile + hist
 fetch → auto-training → observation loop.
 
 ```powershell
-python run.py status     # VALIDATED STRATEGIES / PENDING APPROVAL / positions / trades
+bash scripts/live.sh status     # VALIDATED STRATEGIES / PENDING APPROVAL / positions / trades
 start-dashboard.cmd      # browser dashboard http://127.0.0.1:8501
 ```
+
+**Windows launchers - never bare `bash` from PowerShell.** PowerShell's `bash`
+resolves to the WSL relay on this machine and cannot run these scripts. Use:
+
+- `start-daily.cmd` - masked daily-token prompt → /fundlimit check → live boot
+  (PowerShell-native; recommended for the daily token flow).
+- `start-live.cmd <verb>` - same verbs as `scripts/live.sh` via real Git Bash
+  (e.g. `start-live.cmd dhan`, `start-live.cmd status`, `start-live.cmd preflight`).
+- Git Bash (Start menu): `bash scripts/live.sh <verb>`.
+
+Every launcher refuses credential-like arguments: tokens never go on the
+command line, into files, or into chat - they belong only in the hidden
+prompts of `setup-live.sh` (one-time) or `start-daily.cmd` (daily token).
 
 Keep the machine awake and online 09:15–15:30 IST — disable sleep/hibernate,
 set the lid to do nothing. The square-off only fires while the loop runs; a
@@ -301,12 +314,12 @@ laptop that sleeps at 14:00 leaves a position open until the next boot.
 | When | Action |
 |---|---|
 | Before 09:15 IST | `start-daily.cmd` — paste a fresh 24 h token from the Dhan web console. Keep the console open (token is process-scope, scrubbed on exit). |
-| 09:15–15:30 | Machine awake, lid never closed, network up. Monitor with the dashboard and `python run.py status`. |
+| 09:15–15:30 | Machine awake, lid never closed, network up. Monitor with the dashboard and `bash scripts/live.sh status`. |
 | 14:45 | `entry_cutoff` — no new entries after this; protective exits, opposite-signal exits, and square-off still run. |
 | 15:15 | Automatic square-off (`squareoff`) of agent-owned longs. |
 | 15:30 | EOD equity/PnL and stats written (`market_close`). |
-| Any time | `python run.py status` · emergency `python run.py kill` or create `KILL.flag`. |
-| Weekly | Replay check (§3.5), `python run.py preflight`, review strategy P&L via `python run.py status`. |
+| Any time | `bash scripts/live.sh status` · emergency `python run.py kill` or create `KILL.flag`. |
+| Weekly | Replay check (§3.5), `python run.py preflight`, review strategy P&L via `bash scripts/live.sh status`. |
 
 The defaults that protect you and should stay put: `daily_loss_cap_pct: 2.0`,
 `daily_loss_cap_abs` (₹10 000 full-size), `max_positions: 5`,
@@ -326,7 +339,7 @@ The defaults that protect you and should stay put: `daily_loss_cap_pct: 2.0`,
 #      risk.daily_loss_cap_abs: 10000
 #      risk.max_notional_per_trade: 200000
 # 3. Approve the strategies you want — autonomous capital follows approval:
-python run.py approve <sid>          # list candidates first with: python run.py status
+python run.py approve <sid>          # list candidates first with: bash scripts/live.sh status
 # 4. Restart so load_strategies() picks up the LIVE_APPROVED rows:
 start-daily.cmd
 ```
@@ -351,7 +364,7 @@ paying for its costs.
   1. Read the reason: `Get-Content KILL.flag` (this repo previously halted on
      a non-numeric RELIANCE history candle; that class of failure is now
      skipped-with-logging in `ox/agent.py` and only systemic corruption halts).
-  2. `python run.py status` — confirm positions are flat.
+  2. `bash scripts/live.sh status` — confirm positions are flat.
   3. Investigate the cause (broker state, data error, IP change).
   4. Only then `Remove-Item KILL.flag` and restart via `start-daily.cmd`.
 
@@ -383,7 +396,7 @@ Fix: regenerate the token in the Dhan web console, restart with
 ### Circuit breaker / risk halt
 
 The agent self-halts on persistent negative performance (circuit breaker) or
-daily-loss-cap breach. `python run.py status` and the dashboard show the
+daily-loss-cap breach. `bash scripts/live.sh status` and the dashboard show the
 reason; do not raise the caps to restart — investigate the strategy first.
 
 ### General rule
@@ -422,7 +435,7 @@ python run.py preflight
 start-daily.cmd                 # client ID + today's token; agent boots live in observation mode
 
 # ── SUPERVISE ──────────────────────────────────────────────────────────────
-python run.py status            # expect PENDING APPROVAL rows, zero positions
+bash scripts/live.sh status            # expect PENDING APPROVAL rows, zero positions
 start-dashboard.cmd             # watch orderflow / admission on http://127.0.0.1:8501
 
 # ── WEEKLY ─────────────────────────────────────────────────────────────────
@@ -432,7 +445,7 @@ python -c "from ox.core import DB; print(DB('oxalpha.db').kv_get('orderflow_repl
 
 ### Stop/halt checklist (end of any session or incident)
 
-- [ ] Positions flat — confirmed via `python run.py status`
+- [ ] Positions flat — confirmed via `bash scripts/live.sh status`
 - [ ] Agent stopped cleanly (Ctrl+C runs the graceful-shutdown hooks in order)
 - [ ] Session secrets scrubbed (`START_DAILY.ps1` does this on exit)
 - [ ] `KILL.flag` never deleted before its cause is understood
