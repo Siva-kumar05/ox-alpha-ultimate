@@ -1,5 +1,31 @@
 # Review changelog — this pass
 
+## Audit sweep: incremental history fetch + compliance cadence wiring (2026-09-04)
+
+Root-fix pass for the two genuine (b)-tagged defects from the FLAWS_AND_GAPS
+adjudication (43/43 claims classified; 6 PLAUSIBLE left for live data):
+
+- **Incremental history (#13 remainder):** `Agent.refresh_history` re-fetched
+the full configured history every boot. It now reads the persisted per-symbol
+watermark (newest `ts` in the candles table) and fetches only the gap since
+it — fresh symbols still get the full fetch. The `(sym, ts)` PK +
+`INSERT OR REPLACE` idempotency, per-row skip-not-halt logging, and the
+systemic-corruption gate (`MIN_REJECTED_FOR_SYSTEMIC`/`MAX_BAD_CANDLE_FRACTION`)
+are unchanged, so the RELIANCE incident behaviour is preserved exactly.
+- **Compliance cadence (#27):** `ComplianceReporter.generate_report` was fully
+implemented but never triggered. The agent now calls `run_due_reports()` at
+boot (the tick loop is not running at 06:00); daily/weekly/monthly cadence is
+evaluated from the configured schedule with kv completion markers recording
+the covered period, so each report generates at most once per period even
+across restarts. Fail-closed: a failed report stays due and is logged, never
+blocks boot. Reports are anchored under the DB directory so they cannot leak
+into the process CWD.
+
+Order-execution, sizing, risk-gate, and bracket semantics are untouched.
+
+**Verified:** Windows/3.14 228 passed + 10 subtests (was 222 + 10);
+Linux/3.12 Docker 228 passed; ruff F 0; smoketest PASS.
+
 ## CI 3.12 verdict: scipy optional-dependency crash in Kupiec backtest (2026-09-04)
 
 First-ever GitHub Actions run (root-level workflow) failed the pytest job on

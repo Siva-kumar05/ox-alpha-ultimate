@@ -48,7 +48,16 @@ class ComplianceReporter:
         self.db = db
         self.report_cfg = cfg.get("compliance_reporting", {})
         self.enabled = self.report_cfg.get("enabled", True)
-        self.reports_dir = Path(self.report_cfg.get("reports_dir", "compliance_reports"))
+        reports_dir = Path(self.report_cfg.get("reports_dir", "compliance_reports"))
+        if not reports_dir.is_absolute():
+            # Anchor under the database directory (the agent's state dir) so
+            # reports never leak into the process CWD, e.g. during test runs.
+            try:
+                base = Path(self.db.path).expanduser().resolve().parent
+            except AttributeError:
+                base = Path.cwd()
+            reports_dir = base / reports_dir
+        self.reports_dir = reports_dir
         self.default_format = ReportFormat(self.report_cfg.get("default_format", "json"))
         self.schedule = self.report_cfg.get("schedule", {
             "daily": "06:00",
@@ -123,6 +132,85 @@ class ComplianceReporter:
         
         LOG.info(f"Compliance report generated: {file_path}")
         return report
+
+    # ── cadence driver (called at agent boot) ─────────────────────────────
+    # The tick loop is not running at the configured 06:00 report times, so
+    # the agent evaluates due reports at boot.  Completion is tracked per
+    # report type with a kv marker holding the last generated period date, so
+    # each report is generated at most once per period even across restarts.
+    _DONE_PREFIX = "compliance_done_"
+    _WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+    def _marker(self, report_type: ReportType) -> str:
+        value = self.db.kv_get(self._DONE_PREFIX + report_type.value)
+        return str(value) if value is not None else ""
+
+    @staticmethod
+    def _schedule_token(schedule: dict, key: str, default: str) -> str:
+        raw = str(schedule.get(key, default)).strip().split()
+        return raw[0].lower() if raw else default.strip().split()[0].lower()
+
+    def _due(self, report_type: ReportType) -> bool:
+        schedule = self.schedule if isinstance(self.schedule, dict) else {}
+        today = datetime.now()
+        marker = self._marker(report_type)
+        if report_type == ReportType.DAILY:
+            # Covers the previous day; due until a report for it exists.
+            return marker != (today - timedelta(days=1)).strftime("%Y-%m-%d")
+        if report_type == ReportType.WEEKLY:
+            token = self._schedule_token(schedule, "weekly", "mon 06:00")
+            if self._WEEKDAYS.get(token, 0) != today.weekday():
+                return False
+            if marker:
+                try:
+                    return datetime.strptime(marker, "%Y-%m-%d").date() < (today - timedelta(days=6)).date()
+                except ValueError:
+                    return True
+            return True
+        if report_type == ReportType.MONTHLY:
+            token = self._schedule_token(schedule, "monthly", "1 06:00")
+            try:
+                day_of_month = int(token)
+            except ValueError:
+                day_of_month = 1
+            if today.day != day_of_month:
+                return False
+            if marker:
+                try:
+                    return datetime.strptime(marker, "%Y-%m-%d").date() < (today - timedelta(days=27)).date()
+                except ValueError:
+                    return True
+            return True
+        return False
+
+    def run_due_reports(self) -> List[str]:
+        """Generate every report whose configured cadence is due at this boot.
+
+        Fail-closed: each report is attempted independently; an error is
+        logged and that period simply stays due for the next boot.  Returns
+        the paths of the reports generated in this call.
+        """
+        if not self.enabled:
+            return []
+        generated: List[str] = []
+        today_iso = datetime.now().strftime("%Y-%m-%d")
+        for report_type in (ReportType.DAILY, ReportType.WEEKLY, ReportType.MONTHLY):
+            try:
+                if not self._due(report_type):
+                    continue
+                report = self.generate_report(report_type)
+                # The marker records the period the report covers, so a daily
+                # report generated at Monday's boot marks Sunday and stays
+                # skipped for the rest of Monday even across restarts.
+                if report_type == ReportType.DAILY:
+                    marker_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                else:
+                    marker_date = today_iso
+                self.db.kv_set(self._DONE_PREFIX + report_type.value, marker_date)
+                generated.append(str(report.file_path))
+            except Exception as exc:  # noqa: BLE001 - one report must not break the cadence
+                LOG.error("Compliance %s report generation failed: %s", report_type.value, exc)
+        return generated
     
     def _collect_report_data(self, period_start: str, period_end: str) -> Dict:
         """Collect all data for compliance report."""

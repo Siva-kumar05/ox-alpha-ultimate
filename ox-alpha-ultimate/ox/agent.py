@@ -207,7 +207,21 @@ class Agent:
         return Path(self.cfg.root) / "KILL.flag"
 
     def refresh_history(self, sym: str) -> None:
-        rows = list(self.broker.hist(sym, self.cfg["timeframe_sec"] // 60, self.cfg["history_days"]))
+        # Incremental by a persisted per-symbol watermark (the newest ts already
+        # in the candles table): a fresh symbol still fetches the configured
+        # full history, but later boots fetch only the gap since the newest
+        # stored candle.  (sym, ts) is the table's primary key and writes are
+        # INSERT OR REPLACE, so overlap between the fetched window and stored
+        # rows is idempotent - no duplicate candles can accrue.
+        history_days = int(self.cfg["history_days"])
+        watermark = self.db.q("SELECT MAX(ts) FROM candles WHERE sym=?", (sym,))
+        days = history_days
+        if watermark and watermark[0][0]:
+            gap_days = (max(1, int(time.time()) - int(watermark[0][0])) // 86400) + 2
+            days = min(history_days, gap_days)
+            LOG.info("Incremental history refresh for %s: newest stored ts=%s; fetching last %s day(s)",
+                     sym, watermark[0][0], days)
+        rows = list(self.broker.hist(sym, self.cfg["timeframe_sec"] // 60, days))
         records = []
         rejected = 0
         for timestamp, opening, high, low, close, volume in rows:
@@ -367,6 +381,15 @@ class Agent:
         if not self.strategies and self.cfg.get("auto_train_on_boot", True):
             self.nightly_training()
             self.load_strategies()
+        # Compliance cadence (daily/weekly/monthly per config) is evaluated at
+        # boot because the tick loop is not running at the configured 06:00
+        # report times.  run_due_reports is idempotent per period (completion
+        # markers) and generation failures are logged, never fatal to boot.
+        if self.compliance_reporter is not None:
+            try:
+                self.compliance_reporter.run_due_reports()
+            except Exception:  # noqa: BLE001 - reporting must never block boot
+                LOG.warning("Compliance report generation failed at boot", exc_info=True)
         if self.cfg["mode"] == "live" and self.cfg["order_flow"]["primary"] and self.cfg["order_flow"]["require_replay_validation"]:
             replay = self.flow_replay.evaluate()
             self.db.kv_set("orderflow_replay_validation", replay)

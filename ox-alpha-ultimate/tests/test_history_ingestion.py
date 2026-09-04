@@ -10,6 +10,7 @@ all-bad or empty batch still raises ``MarketDataError``.
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,38 @@ class HistoryIngestionTests(unittest.TestCase):
                 self.assertEqual([r[0] for r in stored], [1700000000, 1700000100])
             finally:
                 db.close()
+
+    def test_incremental_fetch_requests_only_the_gap_and_never_duplicates(self):
+        # A watermark already exists (newest stored candle ~1h ago), so the
+        # refresh must request fewer than the full history_days, and rows that
+        # overlap stored candles must replace rather than duplicate them.
+        now = int(time.time())
+        broker = _Broker([
+            (now, 100.0, 101.0, 99.0, 100.0, 10),
+            (now - 60, 99.0, 100.0, 98.0, 99.5, 20),
+            (now - 3600, 98.0, 98.5, 97.5, 98.0, 5),  # overlaps the seeded candle
+        ])
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "t.db")
+            db = DB(path)
+            fetched_days = None
+            stored = None
+            try:
+                db.ex("INSERT INTO candles VALUES(?,?,?,?,?,?,?)",
+                      ("SBIN", now - 3600, 98.0, 98.5, 97.5, 98.0, 5))
+                stub = type("HistoryAgent", (), {
+                    "cfg": {"timeframe_sec": 60, "history_days": 5},
+                    "db": db,
+                    "broker": broker,
+                })()
+                Agent.refresh_history(stub, "SBIN")
+                fetched_days = broker.called[2]
+                stored = db.q("SELECT ts FROM candles WHERE sym='SBIN' ORDER BY ts")
+            finally:
+                db.close()
+            self.assertLess(fetched_days, 5,
+                            "incremental refresh must not re-fetch the full history")
+            self.assertEqual(len(stored), 3, "overlapping rows must replace, not duplicate")
 
     def test_nan_and_inconsistent_ohlc_rows_are_skipped(self):
         rows = [
