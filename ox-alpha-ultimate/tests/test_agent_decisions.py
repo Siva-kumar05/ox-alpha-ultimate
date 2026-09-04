@@ -571,5 +571,36 @@ def test_tick_full_entry_via_real_act(tmp_path, fake_time):
     assert agent.oms.opened[0]["sym"] == "TCS"
 
 
+# ── pure promax entry seam (ADR-004 step 2) ───────────────────────────────
+# These pin the decision.py helpers the ExecutionRouter now delegates to, so
+# a sizing/bracket change can only happen in one module for both stacks.
+
+from ox.decision import entry_bracket, entry_margin, entry_notional
+
+
+def test_entry_notional_caps_by_budget_times_leverage():
+    # desired 120 @ 100 = 12_000 notional, budget 5_000 @ 2x = 10_000 cap
+    assert entry_notional(120, 100.0, 5_000.0, 2.0) == 10_000.0
+    # within budget: desired wins
+    assert entry_notional(40, 100.0, 5_000.0, 2.0) == 4_000.0
+    # no quantity in the signal -> 95% of the affordable notional
+    assert entry_notional(0, 100.0, 5_000.0, 2.0) == 9_500.0
+    # leverage is floored at 1x, never negative notional
+    assert entry_notional(1, 100.0, 5_000.0, 0.0) == 100.0
+
+
+def test_entry_margin_is_quantity_times_price_over_leverage():
+    assert entry_margin(75, 1100.0, 1.0) == 82_500.0
+    assert entry_margin(2, 100.0, 5.0) == 40.0
+    assert entry_margin(2, 100.0, 0.0) == 200.0  # floored at 1x
+
+
+def test_entry_bracket_uses_signal_stops_else_2_4_percent_defaults():
+    # the exact numbers the real Dhan super-order payload test pins
+    assert entry_bracket(1100.0) == (1078.0, 1144.0)
+    assert entry_bracket(1100.0, stop_loss=1090.0, take_profit=1200.0) == (1090.0, 1200.0)
+    assert entry_bracket(1100.0, stop_loss=0.0, take_profit=0.0) == (1078.0, 1144.0)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

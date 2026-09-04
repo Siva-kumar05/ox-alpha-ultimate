@@ -1,10 +1,12 @@
-"""Pure decision math for the legacy agent's entry path.
+"""Pure decision math for both entry paths.
 
-Extracted from ``ox/agent.py`` so the bracket / regime-vote / quorum / clamp
-arithmetic is directly unit-testable and the agent's hot path stays thin.
-Every function here is pure: no I/O, no side effects, no wall-clock
-dependence.  Behaviour is byte-identical to the code it replaces (the full
-agent suite - decisions, resilience, boot drills - is the regression gate).
+Extracted from ``ox/agent.py`` (legacy ensemble: bracket / regime-vote /
+quorum / clamp) and, per ADR-004 step 2, adopted by the promax
+ExecutionRouter for entry sizing and bracket defaults, so both stacks' entry
+math lives in one module and a sizing/bracket fix lands once.  Every
+function here is pure: no I/O, no side effects, no wall-clock dependence.
+Behaviour is byte-identical to the code it replaces (the decision, router,
+resilience, and boot-drill suites are the regression gate).
 """
 
 from __future__ import annotations
@@ -118,3 +120,39 @@ def clamp_quantity(
     else:
         exposure_headroom_qty = notional_cap_qty
     return min(quantity, notional_cap_qty, exposure_headroom_qty), notional_cap_qty, exposure_headroom_qty
+
+
+# ── promax entry seam (ADR-004 step 2) ────────────────────────────────────
+# These mirror ExecutionRouter._open/_close arithmetic byte-for-byte so the
+# router delegates the math to this module and keeps only venue policy
+# (minimum notional, quantity rounding) and ledger orchestration.
+
+def entry_notional(quantity: float, price: float, budget: float,
+                   leverage: float) -> float:
+    """Cap an entry's notional to the agent's affordable budget at leverage.
+
+    A signal's desired notional is capped by ``budget * leverage``; a signal
+    carrying no (or a non-positive) quantity sizes to 95% of the affordable
+    notional instead - the exact rule the router used inline, now owned by
+    one module.
+    """
+    desired_notional = float(quantity) * float(price)
+    max_notional = max(1.0, float(leverage)) * float(budget)
+    if desired_notional > 0:
+        return min(desired_notional, max_notional)
+    return max_notional * 0.95
+
+
+def entry_margin(quantity: float, price: float, leverage: float) -> float:
+    """Margin reserved on entry (and released on exit) at the position's
+    leverage - the same formula in one place for open and close."""
+    return float(quantity) * float(price) / max(1.0, float(leverage))
+
+
+def entry_bracket(price: float, stop_loss: float | None = None,
+                  take_profit: float | None = None) -> tuple[float, float]:
+    """Bracket for an entry: the signal's own stops when present, otherwise
+    the 2% / 4% default fallback.  Returns ``(stop, target)``."""
+    stop = float(stop_loss) if stop_loss else float(price) * 0.98
+    target = float(take_profit) if take_profit else float(price) * 1.04
+    return stop, target

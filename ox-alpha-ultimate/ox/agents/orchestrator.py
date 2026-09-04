@@ -31,6 +31,7 @@ import yaml
 
 from ..brokers import make_broker
 from ..core import DB
+from ..decision import entry_bracket, entry_margin, entry_notional
 from .approvals import ApprovalGateway
 from .base import (
     AgentConfig,
@@ -302,9 +303,10 @@ class ExecutionRouter:
 
         budget = self.allocator.available(signal.agent_id)
         leverage = max(1.0, float(signal.leverage))
-        max_notional = budget * leverage
-        desired_notional = float(signal.quantity) * price
-        notional = min(desired_notional, max_notional) if desired_notional > 0 else max_notional * 0.95
+        # Entry sizing and bracket defaults are pure decision math (ADR-004
+        # step 2): one module owns the notional cap, margin, and bracket
+        # fallback; the router keeps venue policy and ledger orchestration.
+        notional = entry_notional(float(signal.quantity), price, budget, leverage)
         if notional <= 0:
             self.rejected.append(f"{signal.agent_id}:{signal.symbol}:no-budget")
             return
@@ -321,13 +323,12 @@ class ExecutionRouter:
             self.rejected.append(f"{signal.agent_id}:{signal.symbol}:qty-zero")
             return
 
-        margin = qty * price / leverage
+        margin = entry_margin(qty, price, leverage)
         if not self.allocator.reserve(signal.agent_id, margin):
             self.rejected.append(f"{signal.agent_id}:{signal.symbol}:reserve-denied")
             return
 
-        stop = float(signal.stop_loss) if signal.stop_loss else price * 0.98
-        target = float(signal.take_profit) if signal.take_profit else price * 1.04
+        stop, target = entry_bracket(price, signal.stop_loss, signal.take_profit)
         tag = f"PROMAX_{signal.agent_id[:12]}_{signal.signal_id}"[:40]
 
         if is_crypto:
@@ -410,7 +411,7 @@ class ExecutionRouter:
                 raise
             exit_price = float(receipt.average_price) or float(signal.price) or position.current_price
 
-        margin = position.quantity * position.entry_price / max(1.0, position.leverage)
+        margin = entry_margin(position.quantity, position.entry_price, position.leverage)
         self.allocator.release(signal.agent_id, margin)
         trade = self.allocator.record_trade(
             agent_id=signal.agent_id, symbol=signal.symbol, side=position.side,
